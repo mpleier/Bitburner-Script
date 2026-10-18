@@ -140,6 +140,7 @@ const MODULES = [
   "core.ts",
   "hacking.ts",
   "_backdoortest.ts",
+  "_hacknettest.ts",
   "_bladeburnertest.ts",
   "hacknet.ts",
   "stock.ts",
@@ -414,6 +415,47 @@ const SERVERS = {
     backdoorInstalled: false,
     cpuCores: 1,
   },
+  /* Hacknet nodes. They are on the network, we own them and hasRootAccess()
+     returns true, but they are HacknetServer rather than Server instances, so
+     helpers.getNormalServer() throws on every stat/hacking call:
+       "Cannot be executed on hacknet-server-0. The server must not be a hacknet
+        server."
+     This is the exact host that crashed pickTarget() in hacking.ts, so the mock
+     has to reproduce it. */
+  "hacknet-server-0": {
+    hostname: "hacknet-server-0",
+    hacknet: true,
+    purchasedByPlayer: true,
+    maxRam: 16,
+    usedRam: 4,
+    root: true,
+    money: 0,
+    maxMoney: 0,
+    growth: 1,
+    security: 1,
+    minSecurity: 1,
+    requiredHackingLevel: 1,
+    numPortsRequired: 0,
+    backdoorInstalled: false,
+    cpuCores: 1,
+  },
+  "hacknet-server-1": {
+    hostname: "hacknet-server-1",
+    hacknet: true,
+    purchasedByPlayer: true,
+    maxRam: 8,
+    usedRam: 0,
+    root: true,
+    money: 0,
+    maxMoney: 0,
+    growth: 1,
+    security: 1,
+    minSecurity: 1,
+    requiredHackingLevel: 1,
+    numPortsRequired: 0,
+    backdoorInstalled: false,
+    cpuCores: 1,
+  },
 };
 
 /** src/Server/Server.ts defaults purchasedByPlayer to false for foreign servers. */
@@ -422,7 +464,7 @@ for (const server of Object.values(SERVERS)) {
 }
 
 const CONNECTIONS = {
-  home: ["n0006", "n0001", "n0002", "n0003", "C-1"],
+  home: ["n0006", "n0001", "n0002", "n0003", "C-1", "hacknet-server-0", "hacknet-server-1"],
   n0006: ["home", "n0011"],
   n0001: ["home", "n0018"],
   n0002: ["home", "n0024"],
@@ -752,11 +794,27 @@ function makeNs(args, host, opts) {
   ];
 
 
+  /* helpers.getNormalServer() (src/Netscript/Helpers.tsx): every API that needs
+     real server stats resolves the host through it, and it THROWS for hacknet
+     nodes and for hosts that are not on the network. The mock reproduces that
+     so a script that walks rooted servers without filtering hacknet nodes fails
+     here exactly like it does in the game. */
+  const normalServer = (h) => {
+    const server = SERVERS[h];
+    if (!server) throw new Error(`Invalid host: '${h}'`);
+    if (server.hacknet) {
+      throw new Error(`Cannot be executed on ${h}. The server must not be a hacknet server.`);
+    }
+    return server;
+  };
+
   /* Port openers are synchronous in the real API (defs.d.ts: brutessh(host):
-     boolean), and they throw when the program is not owned. */
+     boolean). They throw for hacknet nodes and return false - with a log line,
+     not an exception - when the program is not owned (NetscriptFunctions.ts:522). */
   const openWithProgram = (h, program) => {
-    if (!PROGRAMS.has(program)) throw new Error(`ns.${program.toLowerCase()}: You do not have ${program}`);
-    if (SERVERS[h]) SERVERS[h].openPorts = (SERVERS[h].openPorts ?? 0) + 1;
+    const server = normalServer(h);
+    if (!PROGRAMS.has(program)) return false;
+    server.openPorts = (server.openPorts ?? 0) + 1;
     return true;
   };
 
@@ -782,31 +840,37 @@ function makeNs(args, host, opts) {
     getServerMaxRam: (h) => SERVERS[h]?.maxRam ?? 0,
     getServerUsedRam: (h) => SERVERS[h]?.usedRam ?? 0,
     hasRootAccess: (h) => Boolean(SERVERS[h]?.root),
-    getServerMaxMoney: (h) => SERVERS[h]?.maxMoney ?? 0,
-    getServerMoneyAvailable: (h) => SERVERS[h]?.money ?? 0,
-    getServerGrowth: (h) => SERVERS[h]?.growth ?? 1,
-    getServerSecurityLevel: (h) => SERVERS[h]?.security ?? 1,
-    getServerMinSecurityLevel: (h) => SERVERS[h]?.minSecurity ?? 1,
-    getServerRequiredHackingLevel: (h) => SERVERS[h]?.requiredHackingLevel ?? 0,
-    getServerNumPortsRequired: (h) => SERVERS[h]?.numPortsRequired ?? 0,
+    getServerMaxMoney: (h) => normalServer(h).maxMoney ?? 0,
+    getServerMoneyAvailable: (h) => normalServer(h).money ?? 0,
+    getServerGrowth: (h) => normalServer(h).growth ?? 1,
+    getServerSecurityLevel: (h) => normalServer(h).security ?? 1,
+    getServerMinSecurityLevel: (h) => normalServer(h).minSecurity ?? 1,
+    getServerRequiredHackingLevel: (h) => normalServer(h).requiredHackingLevel ?? 0,
+    getServerNumPortsRequired: (h) => normalServer(h).numPortsRequired ?? 0,
     getHackingLevel: () => player.hacking,
-    getHackTime: (h) => 10000 / Math.max(1, player.hacking / 100),
-    getGrowTime: (h) => 30000,
-    getWeakenTime: (h) => 4000,
-    hackAnalyze: (h) => Math.min(0.5, 0.5 / Math.max(1, SERVERS[h]?.security ?? 1)),
-    hackAnalyzeThreads: (h, amt) => 10,
-    hackAnalyzeChance: (h) => 0.8,
+    getHackTime: (h) => 10000 / Math.max(1, normalServer(h).requiredHackingLevel, player.hacking / 100),
+    getGrowTime: (h) => (normalServer(h), 30000),
+    getWeakenTime: (h) => (normalServer(h), 4000),
+    hackAnalyze: (h) => Math.min(0.5, 0.5 / Math.max(1, normalServer(h).security ?? 1)),
+    hackAnalyzeThreads: (h, amt) => (normalServer(h), 10),
+    hackAnalyzeChance: (h) => (normalServer(h), 0.8),
     growthAnalyze: (h, mult, cores = 1) =>
-      Math.max(1, Math.log(Math.max(mult, 1)) / Math.log(1.001)) / cores,
+      (normalServer(h), Math.max(1, Math.log(Math.max(mult, 1)) / Math.log(1.001)) / cores),
     weakenAnalyze: (threads = 1, cores = 1) => threads * cores * 0.01,
-    hack: async (h, o = {}) => (SERVERS[h]?.money ?? 0) * 0.1,
-    grow: async (h, o = {}) => 1000,
-    weaken: async (h, o = {}) => 1,
+    hack: async (h, o = {}) => normalServer(h).money * 0.1,
+    grow: async (h, o = {}) => (normalServer(h), 1000),
+    weaken: async (h, o = {}) => (normalServer(h), 1),
     nuke: (h) => {
-      // The game throws here when NUKE.exe is missing; the suite's guard()
-      // is what keeps the script alive through it.
-      if (!PROGRAMS.has("NUKE.exe")) throw new Error("ns.nuke: You do not have NUKE.exe");
-      if (SERVERS[h]) SERVERS[h].root = true;
+      // Faithful to NetscriptFunctions.ts:504: throws for hacknet nodes, returns
+      // false (with a log line) when NUKE.exe is missing or ports are not open.
+      const server = normalServer(h);
+      if (server.root) return true;
+      if (!PROGRAMS.has("NUKE.exe")) {
+        print("ns.nuke: You do not have the NUKE.exe virus!");
+        return false;
+      }
+      if ((server.openPorts ?? 0) < (server.numPortsRequired ?? 0)) return false;
+      server.root = true;
       return true;
     },
     brutessh: (h) => openWithProgram(h, "BruteSSH.exe"),

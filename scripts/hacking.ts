@@ -223,9 +223,10 @@ function rootNetwork(ns: NS, core: any, dryRun: boolean): string[] {
  *   1. connect() can fail, leaving us on our own machine, and the game then
  *      throws "Cannot backdoor <host> server because it is your server"
  *      (src/Hacking/netscriptCanHack.ts -> baseCheck -> server.purchasedByPlayer).
- *   2. core.rootedServers() includes every server we own (home, cloud servers,
- *      hacknet nodes). All of them are purchasedByPlayer and can never be
- *      backdoored, so they have to be filtered out before we try.
+ *   2. The rooted list also contains every server we own (home, cloud servers).
+ *      All of them are purchasedByPlayer and can never be backdoored, so they
+ *      have to be filtered out before we try. core.rootedServers() additionally
+ *      drops hacknet nodes, which are not Server objects at all.
  */
 function backdoorBlocker(ns: NS, host: string, allowDaemon: boolean): string | null {
   // getServer() throws for a host that is no longer on the network, so it is
@@ -234,6 +235,7 @@ function backdoorBlocker(ns: NS, host: string, allowDaemon: boolean): string | n
   if (!server) return "not reachable from our network";
   if (host === "home") return "home is your own computer";
   if (host === "darkweb") return "the darkweb cannot be backdoored";
+  if (host.startsWith("hacknet-")) return "hacknet node, not a real server";
   if (host === "daemon" && !allowDaemon) {
     return "World Daemon: backdooring it ends the bitnode (pass --backdoor-daemon to allow it)";
   }
@@ -339,16 +341,30 @@ function pickTarget(ns: NS, rooted: string[]): string | null {
 
   for (const host of rooted) {
     if (host === "home") continue;
-    if (ns.getServerRequiredHackingLevel(host) > level) continue;
+    // Defensive: core.rootedServers() already drops hacknet nodes, but a caller
+    // can hand us any list. Hacknet nodes report root access, yet they are not
+    // Server objects, so every stat call on them throws:
+    //   "getServerRequiredHackingLevel: Cannot be executed on hacknet-server-0.
+    //    The server must not be a hacknet server."
+    if (core.isHacknetServer(host)) continue;
 
-    const maxMoney = ns.getServerMaxMoney(host);
-    if (maxMoney <= 0) continue;
+    // A server can go offline between the BFS scan and this read, so the whole
+    // stat read is wrapped: one unreachable host is skipped, not fatal.
+    const stats = core.tryCall(
+      () => ({
+        required: ns.getServerRequiredHackingLevel(host),
+        maxMoney: ns.getServerMaxMoney(host),
+        growth: ns.getServerGrowth(host),
+        chance: ns.hackAnalyze(host),
+      }),
+      null,
+    );
+    if (!stats) continue;
+    if (stats.required > level) continue;
+    if (stats.maxMoney <= 0) continue;
+    if (stats.chance <= 0) continue;
 
-    const growth = ns.getServerGrowth(host);
-    const chance = ns.hackAnalyze(host);
-    if (chance <= 0) continue;
-
-    const score = maxMoney * chance * growth;
+    const score = stats.maxMoney * stats.chance * stats.growth;
     if (score > bestScore) {
       bestScore = score;
       best = host;
@@ -362,10 +378,16 @@ async function cycle(ns: NS, target: string, core: any, dryRun: boolean): Promis
   const threads = core.availableThreads(ns, ns.getHostname());
   const cores = safeServer(ns, target)?.cpuCores ?? 1;
 
-  const maxMoney = ns.getServerMaxMoney(target);
-  const minSec = ns.getServerMinSecurityLevel(target);
-  const curSec = ns.getServerSecurityLevel(target);
-  const curMoney = ns.getServerMoneyAvailable(target);
+  // Every stat here can throw if the server vanished between pickTarget() and
+  // this call, so each read is wrapped and a server with no money is skipped.
+  const maxMoney = core.tryCall(() => ns.getServerMaxMoney(target), 0);
+  if (maxMoney <= 0) {
+    ns.print(`${target} has no money to farm - skipping`);
+    return;
+  }
+  const minSec = core.tryCall(() => ns.getServerMinSecurityLevel(target), 1);
+  const curSec = core.tryCall(() => ns.getServerSecurityLevel(target), 1);
+  const curMoney = core.tryCall(() => ns.getServerMoneyAvailable(target), 0);
 
   if (dryRun) {
     ns.print(

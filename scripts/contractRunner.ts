@@ -193,6 +193,15 @@ function discover(ns: NS): string[] {
   return [...seen];
 }
 
+/** ns.getServer() that returns null instead of throwing for an unreachable host. */
+function getServerSafe(ns: NS, host: string): any {
+  try {
+    return ns.getServer(host);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Open as many ports as the programs you own allow, then NUKE.exe.
  * Returns true when the server ends up with root access.
@@ -202,7 +211,13 @@ function discover(ns: NS): string[] {
 function gainRoot(ns: NS, host: string): boolean {
   if (host === "home") return true;
 
-  const server = ns.getServer(host);
+  // Hacknet nodes report admin rights but are not Server objects: brutessh(),
+  // nuke() and friends all throw on them ("The server must not be a hacknet
+  // server"), so there is nothing to do here.
+  if (host.startsWith("hacknet-server-") || host.startsWith("hacknet-node-")) return false;
+
+  const server = getServerSafe(ns, host);
+  if (!server) return false;
   if (server.hasAdminRights) return true;
 
   const required = server.numOpenPortsRequired ?? 0;
@@ -220,7 +235,14 @@ function gainRoot(ns: NS, host: string): boolean {
       openPorts++;
       continue;
     }
-    if (!run(host)) {
+    // Each opener can throw (no singularity access, server went offline).
+    let opened = false;
+    try {
+      opened = run(host);
+    } catch (err) {
+      ns.print(`[root] ${host}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (!opened) {
       ns.print(`[root] ${host}: do not own ${program}`);
       continue;
     }
@@ -228,7 +250,12 @@ function gainRoot(ns: NS, host: string): boolean {
   }
 
   if (openPorts < required) return false;
-  return ns.nuke(host);
+  try {
+    return ns.nuke(host);
+  } catch (err) {
+    ns.print(`[root] ${host}: nuke failed (${err instanceof Error ? err.message : String(err)})`);
+    return false;
+  }
 }
 
 /** Biggest server we already have root on that can hold `ram` GB. */
@@ -236,7 +263,8 @@ function richestRootedServer(ns: NS, ram: number): string | null {
   let best: string | null = null;
   let bestRam = 0;
   for (const host of discover(ns)) {
-    const server = ns.getServer(host);
+    const server = getServerSafe(ns, host);
+    if (!server) continue;
     if (server.hasAdminRights && server.maxRam >= ram && server.maxRam > bestRam) {
       best = host;
       bestRam = server.maxRam;

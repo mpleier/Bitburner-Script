@@ -162,7 +162,15 @@ function bestHost(ns, fallback) {
   }
 
   for (const host of seen) {
-    const server = ns.getServer(host);
+    // getServer() throws for a host that is no longer on the network, and hacknet
+    // nodes are not Server objects - neither is a usable script host.
+    let server = null;
+    try {
+      server = ns.getServer(host);
+    } catch {
+      continue;
+    }
+    if (!server) continue;
     if (server.hasAdminRights && server.maxRam >= RAM_NEEDED && server.maxRam > bestRam) {
       best = host;
       bestRam = server.maxRam;

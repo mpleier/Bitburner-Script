@@ -65,20 +65,38 @@ export async function main(ns: NS): Promise<void> {
   ns.singularity.connect("home");
   await check("foreign, not rooted", "n0002", "root access");
 
+  // Rooting a server the way the game does: every required port must be open
+  // before NUKE.exe works (NetscriptFunctions.ts:514). The mock player owns all
+  // five port openers, so open them all and then nuke.
+  const root = (host: string): boolean => {
+    for (const open of [ns.brutessh, ns.ftpcrack, ns.relaysmtp, ns.httpworm, ns.sqlinject]) open(host);
+    return ns.nuke(host);
+  };
+
   // 4. Root it: the backdoor now succeeds.
-  await ns.nuke("n0002");
+  root("n0002");
   await check("foreign, rooted", "n0002", "installed");
 
   // 5. Adjacent foreign server whose required level is above ours.
-  await ns.nuke("n0024");
+  root("n0024");
   await check("foreign, level too low", "n0024", "skill");
 
   // 6. The World Daemon: foreign, but needs hacking 2000.
-  await ns.nuke("daemon");
+  root("daemon");
   await check("world daemon", "daemon", "skill");
 
   // 7. Not adjacent to where we are and not backdoored -> connect() returns false.
   await check("not adjacent", "n0011", "unreachable");
+
+  // 8. A hacknet node is never a backdoor target: connect() to it works, but it
+  //    is not a Server, so hacking it would throw "must not be a hacknet server".
+  let hacknetRejected = false;
+  try {
+    ns.getServerRequiredHackingLevel("hacknet-server-0");
+  } catch (err) {
+    hacknetRejected = String(err).includes("hacknet server");
+  }
+  if (!hacknetRejected) failures.push("hacknet node: getServerRequiredHackingLevel should throw");
 
   for (const line of log) ns.print(line);
 

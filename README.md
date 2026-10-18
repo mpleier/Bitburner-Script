@@ -466,9 +466,10 @@ await ns.singularity.installBackdoor();
 
 crashed whenever `connect()` failed: the player stayed on their own machine, and
 `installBackdoor()` then ran against `home` (or any purchased cloud server), which
-is `purchasedByPlayer` and can never be backdoored. `core.rootedServers()` makes
-this worse - it returns *every* server we have root on, which includes home, cloud
-servers and hacknet nodes.
+is `purchasedByPlayer` and can never be backdoored. The rooted list makes this
+worse - it returns *every* server we have root on, which includes home and cloud
+servers (hacknet nodes are now filtered out by `core.rootedServers()`, see
+[Hacknet nodes are not servers](#hacknet-nodes-are-not-servers)).
 
 `hacking.ts` now checks the gate before touching the API:
 
@@ -500,6 +501,53 @@ catch (err) { ns.print(`backdoor on ${host} failed: ${err.message}`); }   // nev
 `scripts/_backdoortest.ts` asserts all of these rules against the mock: owned
 server, unrooted server, level too low, the World Daemon, and a non-adjacent
 server. Run it with `node mocksuite.mjs _backdoortest --verbose`.
+
+---
+
+## Hacknet nodes are not servers
+
+`ns.scan()` returns hacknet nodes and `ns.hasRootAccess()` says `true` for them,
+because we own them. But they are `HacknetServer` objects, not `Server` objects,
+so every API that needs real server stats goes through `helpers.getNormalServer()`
+(`src/Netscript/Helpers.tsx`), which **throws**:
+
+```ts
+// src/Netscript/Helpers.tsx - getNormalServer()
+const [server, host] = getServer(ctx, _host);
+if (!(server instanceof Server)) {
+  let errorMessage = `Cannot be executed on ${host}.`;
+  if (server instanceof HacknetServer)
+    errorMessage += " The server must not be a hacknet server.";
+  throw helpers.errorMessage(ctx, errorMessage);
+}
+```
+
+That is exactly how `hacking.ts` died once hacknet servers were bought:
+
+```text
+RUNTIME ERROR
+getServerRequiredHackingLevel: Cannot be executed on hacknet-server-0.
+The server must not be a hacknet server.
+Stack: hacking.ts:L198@pickTarget
+```
+
+The functions that throw on a hacknet node are `getServerRequiredHackingLevel`,
+`getServerMaxMoney`, `getServerMoneyAvailable`, `getServerGrowth`,
+`getServerSecurityLevel`, `getServerMinSecurityLevel`, `getServerNumPortsRequired`,
+`getHackTime`, `getGrowTime`, `getWeakenTime`, `hack`, `grow`, `weaken`, `nuke`
+and the five port openers. `getServer`, `getServerMaxRam`, `getServerUsedRam`,
+`hasRootAccess` and `ls` are safe - they only need `helpers.getServer()`.
+
+Two helpers now split the difference:
+
+| helper | contains | used for |
+|---|---|---|
+| `core.rootedServers(ns)` | rooted, **no** hacknet nodes | rooting sweep, backdoors, target selection |
+| `core.scriptHosts(ns)` | rooted, hacknet nodes included | script placement - hacknet RAM is real RAM, and RAM used by scripts on a hacknet server raises its hash gain |
+
+`core.isHacknetServer(host)` uses the same hostname prefix test the game itself
+uses in `src/Cloud.ts`. `scripts/_hacknettest.ts` asserts the split; run it with
+`node mocksuite.mjs _hacknettest --verbose`.
 
 ---
 
@@ -621,6 +669,7 @@ scripts/
   bladeburner.ts corporation.ts stock.ts stanek.ts sleeves.ts
   go.ts infiltration.ts darknet.ts share.ts
   _backdoortest.ts    installBackdoor access-gate test (runs against the mock)
+  _hacknettest.ts     hacknet-node filtering test (runs against the mock)
 
 mocksuite.mjs         fake ns API, runs the whole suite offline
 selftest.mjs          known-answer solver tests
@@ -656,6 +705,7 @@ c_*.ts                reference copies of official contract implementations
 | `Must own a corporation.` / `Must be in a gang.` / `Must be in the Bladeburner division.` | The module called a gated API before the subsystem existed. See [Subsystem access](#subsystem-access-must-own-a-corporation). |
 | `You don't have TIX API Access!` / `You don't have 4S Market Data TIX API Access!` | `stock.ts` needs the WSE account, the TIX API and the 4S Market Data TIX API bought before it can read forecasts. It now buys them first and skips the tick if it cannot afford them. |
 | `Cannot backdoor ... server because it is your server` | `installBackdoor()` has no target argument - it backdoors the server you are *connected to*. `hacking.ts` now filters owned servers and checks `connect()` before calling it. See [Backdoors](#backdoors-installbackdoor-has-no-target-argument). |
+| `Cannot be executed on hacknet-server-N. The server must not be a hacknet server.` | Hacknet nodes show up in `ns.scan()` and report root access, but they are not `Server` objects, so every stat/hacking call on them throws. `core.rootedServers()` filters them out and `pickTarget()` re-checks defensively. See [Hacknet nodes are not servers](#hacknet-nodes-are-not-servers). |
 | `No such exploit ('...') found on the darkweb!` | `getDarkwebProgramCost()` **throws** for anything the darkweb does not sell - `NUKE.exe` is not on it. `hacking.ts` only asks for `core.DARKWEB_PROGRAMS` and wraps the call in `core.tryCall`, so the suite never triggers this. See [Programs: buy them, never create them](#programs-buy-them-never-create-them). |
 | `You do not have the TOR router.` | Singularity functions are gated by Source-File 4 / BitNode 4, and the darkweb needs the 100k TOR router. `hacking.ts` checks both and logs a line instead of crashing. |
 | `Your Bladeburner action was cancelled` | `crime.ts` committed a crime while an operation was running. Run it with `--focus rep` on a sleeve, or let the guard skip the commit (it now does). |

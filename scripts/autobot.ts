@@ -172,8 +172,10 @@ interface Placement {
  * number claims the rooted server with the most free RAM that can hold it.
  */
 function makePlan(ns: NS, core: any, only: string[], skip: string[]): Placement[] {
-  const servers = (core.rootedServers(ns) as string[])
-    .map((h: string) => ({ host: h, free: ns.getServerMaxRam(h) - ns.getServerUsedRam(h) }))
+  // scriptHosts() (not rootedServers()) so hacknet nodes are available as script
+  // hosts: they have RAM, and RAM used by scripts on them raises hash gain.
+  const servers = (core.scriptHosts(ns) as string[])
+    .map((h: string) => ({ host: h, free: core.tryCall(() => ns.getServerMaxRam(h) - ns.getServerUsedRam(h), 0) }))
     .sort((a: any, b: any) => b.free - a.free);
 
   const placements: Placement[] = [];

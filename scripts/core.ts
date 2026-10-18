@@ -90,7 +90,7 @@ export function hasFlag(args: string[], name: string): boolean {
 
 /** Number of threads a script can run with on `host` (1 GB per thread). */
 export function availableThreads(ns: NS, host: string): number {
-  const free = ns.getServerMaxRam(host) - ns.getServerUsedRam(host);
+  const free = tryCall(() => ns.getServerMaxRam(host) - ns.getServerUsedRam(host), 1);
   return Math.max(1, Math.floor(free));
 }
 
@@ -109,17 +109,54 @@ export function discover(ns: NS): string[] {
   return [...seen];
 }
 
-/** Every reachable server we already have root on. */
+/**
+ * Is `host` a hacknet node rather than a real server?
+ *
+ * Hacknet nodes are on the network and we own them, so ns.hasRootAccess()
+ * returns true for them - but they are HacknetServer instances, not Server
+ * instances. Every API that needs real server stats goes through
+ * helpers.getNormalServer() (src/Netscript/Helpers.tsx), which throws for them:
+ *
+ *   getServerRequiredHackingLevel: Cannot be executed on hacknet-server-0.
+ *   The server must not be a hacknet server.
+ *
+ * The hostname prefix test is the same one the game itself uses
+ * (src/Cloud.ts: hostname.startsWith("hacknet-node-") || ...("hacknet-server-")).
+ */
+export function isHacknetServer(host: string): boolean {
+  return host.startsWith("hacknet-server-") || host.startsWith("hacknet-node-");
+}
+
+/** ns.hasRootAccess() that returns false instead of throwing for a host that is
+ * offline, isolated (darkweb before TOR) or otherwise not addressable. */
+export function hasRoot(ns: NS, host: string): boolean {
+  return tryCall(() => ns.hasRootAccess(host), false);
+}
+
+/**
+ * Every reachable server we have root on that the hacking API can talk about.
+ * Hacknet nodes are deliberately excluded: they are rooted, but rooting them is
+ * meaningless and every stat call on them throws.
+ */
 export function rootedServers(ns: NS): string[] {
-  return discover(ns).filter((h) => ns.hasRootAccess(h));
+  return discover(ns).filter((h) => !isHacknetServer(h) && hasRoot(ns, h));
+}
+
+/**
+ * Rooted hosts that can host scripts. Hacknet nodes count here: they have RAM,
+ * scripts can run on them, and RAM consumed on a hacknet server increases its
+ * hash production (formulas.hacknetServers.hashGainRate(level, ramUsed, maxRam, cores)).
+ */
+export function scriptHosts(ns: NS): string[] {
+  return discover(ns).filter((h) => hasRoot(ns, h));
 }
 
 /** Biggest rooted server that can hold `ram` GB, or null. */
 export function bestRootedServer(ns: NS, ram: number): string | null {
   let best: string | null = null;
   let bestFree = 0;
-  for (const host of rootedServers(ns)) {
-    const free = ns.getServerMaxRam(host) - ns.getServerUsedRam(host);
+  for (const host of scriptHosts(ns)) {
+    const free = tryCall(() => ns.getServerMaxRam(host) - ns.getServerUsedRam(host), 0);
     if (free >= ram && free > bestFree) {
       best = host;
       bestFree = free;
@@ -142,18 +179,22 @@ export function portsWeCanOpen(ns: NS, owned: Set<string>): number {
 
 /** Open every port we have a program for, then NUKE. Returns true on root. */
 export function rootServer(ns: NS, host: string, dryRun = false): boolean {
-  if (ns.hasRootAccess(host)) return true;
+  // Hacknet nodes are already "rooted" but are not servers: nuke() and the port
+  // openers throw on them (helpers.getNormalServer).
+  if (isHacknetServer(host)) return false;
+  if (hasRoot(ns, host)) return true;
   const owned = ownedPrograms(ns);
-  const needed = ns.getServerNumPortsRequired(host);
+  const needed = tryCall(() => ns.getServerNumPortsRequired(host), 99);
   if (portsWeCanOpen(ns, owned) < needed) return false;
 
   if (dryRun) return true;
 
   for (const p of PORT_OPENERS) {
     if (!owned.has(p.file)) continue;
-    if (!p.open(ns, host)) return false;
+    if (!tryCall(() => p.open(ns, host), false)) return false;
   }
-  return ns.nuke(host);
+  // nuke() returns false when NUKE.exe is missing or not enough ports are open.
+  return tryCall(() => ns.nuke(host), false);
 }
 
 /** Servers we could root right now (level + programs), not yet rooted. */
@@ -162,17 +203,20 @@ export function rootableServers(ns: NS): string[] {
   const level = ns.getHackingLevel();
   return discover(ns).filter(
     (h) =>
-      !ns.hasRootAccess(h) &&
-      ns.getServerRequiredHackingLevel(h) <= level &&
-      ns.getServerNumPortsRequired(h) <= portsWeCanOpen(ns, owned),
+      // Hacknet nodes report root access already, but getServerNumPortsRequired
+      // and getServerRequiredHackingLevel throw on them - filter them out first.
+      !isHacknetServer(h) &&
+      !hasRoot(ns, h) &&
+      tryCall(() => ns.getServerRequiredHackingLevel(h), Infinity) <= level &&
+      tryCall(() => ns.getServerNumPortsRequired(h), 99) <= portsWeCanOpen(ns, owned),
   );
 }
 
 /** Copy a file to every rooted server that has room for it. */
 export function distribute(ns: NS, files: string[], minRam = 8): void {
-  for (const host of rootedServers(ns)) {
-    if (ns.getServerMaxRam(host) < minRam) continue;
-    ns.scp(files, host, "home");
+  for (const host of scriptHosts(ns)) {
+    if (tryCall(() => ns.getServerMaxRam(host), 0) < minRam) continue;
+    tryCall(() => ns.scp(files, host, "home"), false);
   }
 }
 
