@@ -6,14 +6,15 @@
  *   - commits the best one repeatedly
  *   - builds the Shadow faction chain (the only faction worth grinding for)
  *
- * RAM cost (GB): base 1.6 + commitCrime 2 + getCrimeChance 2 + getCrimeMoney 2
- *   + getStat 0.05 + getPlayer 0.5 + isBusy 0.5
+ * RAM cost (GB): base 1.6 + commitCrime 2 + getCrimeChance 2 + getCrimeStats 2
+ *   + getPlayer 0.5 + isBusy 0.5
  *   + getFactionRep 1 + checkFactionInvitations 3 + joinFaction 3
- *   + getAugmentationsFromFaction 5 + getAugmentationPrereq 5
- *   + getAugmentationPrice 2.5 + getAugmentationRepReq 2.5
+ *   + getAugmentationsFromFaction 5 + getAugmentationPrice 2.5 + getAugmentationRepReq 2.5
  *   + getOwnedAugmentations 5 + purchaseAugmentation 5 + donateToFaction 5
  *   + getFavorToDonate 0.1
- *   => ~42 GB
+ *   + bladeburner.inBladeburner 0 + bladeburner.getCurrentAction 1
+ *   + whatever core.ts uses
+ *   => ~43 GB (ramgap.mjs computes the exact number)
  *
  * Usage
  *   run crime.ts
@@ -29,17 +30,28 @@
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
 
-const RAM_NEEDED = 42;
+const RAM_NEEDED = 43;
 
 /** All crimes, taken from the enum so the names are always valid. */
 function allCrimes(ns: NS) {
   return Object.values(ns.enums.CrimeType);
 }
-/** Shadow faction chain, in prerequisite order. */
-const SHADOW_AUGS: string[] = [
-  "Shadow Blade", "Shadow Network", "Shadow Avatar", "Shadow Bond",
-  "Shadow Qi", "Shadow Substrate", "Shadow Veil", "Shadow Shell",
-];
+
+/*
+ * Do NOT hardcode augmentation names.
+ *
+ * The game validates every augmentation argument against its AugmentationName
+ * enum (src/utils/EnumHelper.ts -> nsGetMember) and throws a RuntimeError when
+ * the string is not a member:
+ *   singularity.getAugmentationPrereq: Argument augmentationName should be a
+ *   AugmentationName enum member. Provided value: "Shadow Blade".
+ *
+ * ns.enums does not expose AugmentationName, so a script has no way to check a
+ * hardcoded name. "Shadow Blade" / "Shadow Network" / "Shadow Qi" ... were the
+ * old Shadows of Anarchy chain and were replaced by the "SoA - ..." augmentations,
+ * which is exactly what crashed crime.ts. The chain below is therefore read back
+ * from the API itself, so it can never contain a stale name.
+ */
 
 export async function main(ns: NS): Promise<void> {
   ns.clearLog();
@@ -64,7 +76,11 @@ export async function main(ns: NS): Promise<void> {
     if (best) {
       if (dryRun) {
         ns.print(`[dry-run] best crime: ${best.crime} -> ${fmt(best.perSec)}/s (chance ${best.chance})`);
-      } else if (!ns.singularity.isBusy()) {
+      } else if (ns.singularity.isBusy()) {
+        ns.print("busy, skipping crime");
+      } else if (bladeburnerBusy(ns)) {
+        ns.print("Bladeburner is running an action, skipping crime (committing a crime cancels it)");
+      } else {
         const result = ns.singularity.commitCrime(best.crime);
         ns.print(`${best.crime} took ${result} ms`);
       }
@@ -90,8 +106,21 @@ function bestCrime(ns: NS, focus: string) {
   return best;
 }
 
+/**
+ * Is the Bladeburner division busy? Committing a crime cancels a running
+ * Bladeburner action, so crime.ts must not do that.
+ *
+ * inBladeburner() costs 0 GB and never throws (it just checks Player.bladeburner),
+ * so it is the cheap gate; getCurrentAction() costs 1 GB and is only reached when
+ * we are actually in the division.
+ */
+function bladeburnerBusy(ns: NS): boolean {
+  if (!ns.bladeburner.inBladeburner()) return false;
+  return ns.bladeburner.getCurrentAction() != null;
+}
 
-/** Build the Shadow faction: earn rep in the four feeder factions, join, buy the chain. */
+
+/** Build the Shadow faction: earn rep in the four feeder factions, join, buy what they offer. */
 function shadowChain(ns: NS, dryRun: boolean): void {
   const shadow = ns.enums.FactionName.ShadowsOfAnarchy;
   const feeders = [
@@ -108,26 +137,60 @@ function shadowChain(ns: NS, dryRun: boolean): void {
     ns.print(`Shadow needs 100 rep in ${faction} (currently ${rep})`);
   }
 
+  // Ask the game what the Shadows actually sell. Anything this returns is an
+  // AugmentationName enum member by construction, so it can never be rejected.
+  let offered: string[];
+  try {
+    offered = ns.singularity.getAugmentationsFromFaction(shadow) ?? [];
+  } catch (err) {
+    ns.print(`shadow chain skipped: ${(err as Error).message}`);
+    return;
+  }
+
+  if (offered.length === 0) {
+    ns.print("Shadows of Anarchy has nothing to sell yet (join it first).");
+    return;
+  }
+
   const owned = new Set(ns.singularity.getOwnedAugmentations(true));
-  for (const aug of SHADOW_AUGS) {
+  const shadowRep = ns.singularity.getFactionRep(shadow);
+
+  const shopping: Array<{ aug: string; price: number; repReq: number }> = [];
+  for (const aug of offered) {
     if (owned.has(aug)) continue;
+    try {
+      shopping.push({
+        aug,
+        price: ns.singularity.getAugmentationPrice(aug),
+        repReq: ns.singularity.getAugmentationRepReq(aug),
+      });
+    } catch (err) {
+      ns.print(`skipped ${aug}: ${(err as Error).message}`);
+    }
+  }
 
-    const prereq = ns.singularity.getAugmentationPrereq(aug);
-    if (prereq.some((p) => !owned.has(p))) continue;
+  // Cheapest reputation requirement first: the SoA augmentations have no
+  // prereqs, but each one bought raises the price of the next, so this order
+  // maximises how many get bought before the money runs out.
+  shopping.sort((a, b) => a.repReq - b.repReq);
 
-    const rep = ns.singularity.getFactionRep(shadow);
-    if (rep < ns.singularity.getAugmentationRepReq(aug)) continue;
-
-    const price = ns.singularity.getAugmentationPrice(aug);
-    if (price <= 0 || price > cash / 2) continue;
-
-    if (dryRun) {
-      ns.print(`[dry-run] would buy ${aug} for ${fmt(price)}`);
+  let budget = cash;
+  for (const item of shopping) {
+    if (shadowRep < item.repReq) {
+      ns.print(`need ${fmt(item.repReq)} Shadow rep for ${item.aug} (have ${fmt(shadowRep)})`);
       continue;
     }
-    if (ns.singularity.purchaseAugmentation(shadow, aug)) {
-      ns.print(`bought ${aug} for ${fmt(price)}`);
-      owned.add(aug);
+    if (item.price <= 0 || item.price > budget) continue;
+
+    if (dryRun) {
+      ns.print(`[dry-run] would buy ${item.aug} for ${fmt(item.price)}`);
+      budget -= item.price;
+      continue;
+    }
+    if (ns.singularity.purchaseAugmentation(shadow, item.aug)) {
+      ns.print(`bought ${item.aug} for ${fmt(item.price)}`);
+      budget -= item.price;
+      owned.add(item.aug);
     }
   }
 }

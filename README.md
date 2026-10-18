@@ -259,6 +259,67 @@ server is too small, so nothing fails silently.
 
 ---
 
+## Names the game validates: why nothing is hardcoded
+
+Most API calls that take a *name* are checked against an enum at runtime:
+
+```ts
+// src/utils/EnumHelper.ts
+nsGetMember(ctx, value, argName) {
+  if (!this.isMember(value))
+    throw `Argument ${argName} should be a ${this.name} enum member. Provided value: "${value}"`;
+}
+```
+
+The catch is that `ns.enums` only exposes a **subset** of those enums. `CrimeType`,
+`FactionName`, `CompanyName`, `LocationName`, `CityName`, `BladeburnerActionType` and a
+handful of others are available; `AugmentationName`, `BladeburnerContractName`,
+`BladeburnerOperationName`, `IndustryType`, `CorpResearchName` and `GoOpponent` are not.
+
+So a hardcoded augmentation name is a time bomb. This is the crash that killed
+`crime.ts`:
+
+```
+RUNTIME ERROR
+singularity.getAugmentationPrereq: Argument augmentationName should be a AugmentationName enum member.
+Provided value: "Shadow Blade".
+```
+
+"Shadow Blade", "Shadow Network", "Shadow Qi" ... were the old Shadows of Anarchy
+chain. They were replaced by the Infiltration augmentations (`SoA - Might of Ares`,
+`SoA - Wisdom of Athena`, ...), so the hardcoded list was stale and the script died
+the moment it reached it.
+
+The rule the suite follows: **never hardcode a name the enum cannot be checked
+against**. Read it back from the API instead:
+
+```ts
+// safe: whatever the game returns is an enum member by construction
+for (const aug of ns.singularity.getAugmentationsFromFaction(shadow)) {
+  ns.singularity.purchaseAugmentation(shadow, aug);
+}
+```
+
+`enumcheck.mjs` enforces this offline. It parses every enum out of `defs.d.ts`, walks
+the AST of every script, resolves the arguments of the enum-validated calls (literals,
+top-level literal arrays, and `for (const x of ARRAY)` loop variables) and fails if any
+of them is not a member:
+
+```bash
+npm run enums
+```
+
+---
+
+## Bladeburner and crime
+
+`ns.singularity.commitCrime()` cancels a running Bladeburner action ("Your Bladeburner
+action was cancelled because you started doing something else"). `crime.ts` therefore
+checks `ns.bladeburner.inBladeburner()` + `ns.bladeburner.getCurrentAction()` before
+committing a crime, and skips the commit while an operation is in progress.
+
+---
+
 ## Testing without the game
 
 The repo ships a fake `ns` API so the whole suite can be exercised offline:
@@ -267,6 +328,8 @@ The repo ships a fake `ns` API so the whole suite can be exercised offline:
 npm install                 # typescript + the transpiler used by the import check
 npm run typecheck           # tsc --noEmit over every module
 npm run imports             # replay the game's module resolver on every script
+npm run ram                 # static RAM allocation vs. dynamic charge for every script
+npm run enums               # every hardcoded name must be a real enum member
 npm run selftest            # 36 known-answer contract checks
 npm run fuzz                # 8400 randomized differential checks
 npm run mock              # every module against a fake ns API
@@ -286,7 +349,13 @@ node mocksuite.mjs --loops 5 --bitnode 10   # BN10: darknet becomes available
 node mocksuite.mjs --ram 1024               # pretend home has 1 TB
 node mocksuite.mjs --no-sf                  # no Source-Files: most modules skip
 node mocksuite.mjs --money 100              # broke player: corp/stock bail out
+node mocksuite.mjs crime --live             # actually call commitCrime/purchaseAugmentation
+node mocksuite.mjs crime --live --blade-action Operations Raid   # Bladeburner is busy
 ```
+
+`--live` drops the `--dry-run` argument so the modules take their real code paths, and
+`--blade-action <type> <name>` puts the Bladeburner division into a running action so the
+"crime cancels the Bladeburner action" guard is exercised.
 
 A module is reported as `[ok]`, `[ok (loop budget reached)]` or `[FAIL: ...]`.
 
@@ -312,6 +381,7 @@ fuzz.mjs              randomized differential tests
 importcheck.mjs       replays the game's module resolver to catch bad imports
 ramgap.mjs            static allocation vs. dynamic charge, per script
 ramcheck.mjs          per-module RAM budget audit
+enumcheck.mjs         every hardcoded enum name must be a real enum member
 ramtable.json         the RAM cost table extracted from RamCostGenerator.ts
 tsconfig.json         strict TS config (noEmit)
 globals.d.ts          makes NS global for local tsc, like the game's editor does
@@ -335,5 +405,7 @@ c_*.ts                reference copies of official contract implementations
 | A module shows as `blocked` | The dashboard prints why (missing Source-File, Bitnode requirement, not enough RAM). It is not a bug. |
 | `0 solved`, contracts skipped | That contract type has no solver yet — the runner prints `No solver for: ...` at the start. |
 | Contract attempts exhausted | Use `--dry-run` first to verify answers before spending attempts. |
+| `Argument ... should be a ... enum member` | A hardcoded name is not in the game's enum. See [Names the game validates](#names-the-game-validates-why-nothing-is-hardcoded) and run `node enumcheck.mjs`. |
+| `Your Bladeburner action was cancelled` | `crime.ts` committed a crime while an operation was running. Run it with `--focus rep` on a sleeve, or let the guard skip the commit (it now does). |
 | Want to stop everything | `run autobot.ts --kill` |
 
