@@ -6,14 +6,18 @@
  * What it does
  *   1. BFS-scans the network from `home` to find every reachable server.
  *   2. Lists every *.cct file on each server.
- *   3. Gains root access (open ports with the programs you own, then NUKE.exe).
+ *   3. Solves and submits every contract it can. The Coding Contract API does NOT
+ *      require admin rights, so contracts on servers you cannot root are still solved.
+ *      Pass --open-ports to additionally open ports + NUKE those servers.
  *   4. Solves the contract with the solvers in contracts.ts and submits it.
  *
  * RAM cost (GB), straight from the official RamCostGenerator:
- *   scan 0.2 | ls 0.2 | getContractType 5 | getData 5 | attempt 10
- *   nuke 1 | brutessh 1 | ftpcrack 1 | relaysmtp 1 | httpworm 1 | sqlinject 1
+ *   base 1.6 | scan 0.2 | ls 0.2 | getHostname 0.05 | getServer 2
+ *   getServerMaxRam 0.05 | getContractType 5 | getData 5 | getNumTriesRemaining 2
+ *   attempt 10 | nuke 0.05 | brutessh 0.05 | ftpcrack 0.05 | relaysmtp 0.05
+ *   httpworm 0.05 | sqlinject 0.05 | exec 1.3 | scp 0.6 | sleep/print/tprint 0
  *   dynamicImport 0  -> contracts.ts itself costs 0 RAM
- *   => ~25.4 GB worst case. If the current server cannot hold that, the script
+ *   => ~27.4 GB worst case. If the current server cannot hold that, the script
  *      copies itself to the biggest server you already have root on and runs there.
  *
  * Usage
@@ -23,7 +27,14 @@
  *   node contractRunner.ts --selftest               # verify the solvers, then exit
  *   node contractRunner.ts --loop --interval 30000  # keep rescanning
  *   node contractRunner.ts --max 50                 # stop after N contracts
+ *   node contractRunner.ts --open-ports             # also open ports + NUKE for hacking
  */
+
+/**
+ * Type-only import: erased by the transpiler, so it is safe both in-game
+ * (where `NS` is provided globally) and for local `tsc` checks.
+ */
+import type { NS } from "../defs.d";
 
 type Solvers = {
   solve: (type: string, data: unknown) => unknown;
@@ -32,7 +43,7 @@ type Solvers = {
 };
 
 /** Worst-case RAM the script needs (see header). */
-const RAM_NEEDED = 26;
+const RAM_NEEDED = 28;
 
 export async function main(ns: NS): Promise<void> {
   ns.clearLog();
@@ -44,9 +55,12 @@ export async function main(ns: NS): Promise<void> {
   const onlyHost = flagValue(args, "--host");
   const interval = Number(flagValue(args, "--interval") ?? 30000);
   const maxContracts = Number(flagValue(args, "--max") ?? 1000);
+  const openPorts = args.includes("--open-ports");
+
+  const currentServer = ns.getHostname();
 
   // contracts.ts is dynamically imported: 0 GB RAM.
-  if (!ns.ls(ns.hostname, "contracts.ts").length) {
+  if (!ns.ls(currentServer, "contracts.ts").length) {
     ns.tprint("Error: contracts.ts must be on the same server as contractRunner.ts");
     return;
   }
@@ -59,35 +73,35 @@ export async function main(ns: NS): Promise<void> {
   }
 
   // A 26 GB script will not fit on a 8 GB home server early on.
-  if (ns.getServerMaxRam(ns.hostname) < RAM_NEEDED) {
+  if (ns.getServerMaxRam(currentServer) < RAM_NEEDED) {
     const host = richestRootedServer(ns, RAM_NEEDED);
-    if (host && host !== ns.hostname) {
-      ns.copy("./contracts.ts", host);
-      ns.copy("./contractRunner.ts", host);
-      ns.exec("./contractRunner.ts", host, 1, ...args);
+    if (host && host !== currentServer) {
+      ns.scp("contracts.ts", host);
+      ns.scp("contractRunner.ts", host);
+      ns.exec("contractRunner.ts", host, 1, ...args);
       ns.tprint(`Relocated to ${host} (needs ${RAM_NEEDED} GB, ${host} has ${ns.getServerMaxRam(host)} GB)`);
       return;
     }
-    ns.tprint(`Not enough RAM on ${ns.hostname} (${ns.getServerMaxRam(ns.hostname)} GB < ${RAM_NEEDED} GB) and no rooted server is big enough.`);
+    ns.tprint(`Not enough RAM on ${currentServer} (${ns.getServerMaxRam(currentServer)} GB < ${RAM_NEEDED} GB) and no rooted server is big enough.`);
     return;
   }
 
   const supported = new Set(solvers.supportedTypes());
   const allTypes = ns.codingcontract.getContractTypes();
   const unsupportedTypes = allTypes.filter((t) => !supported.has(t));
-  if (unsupportedTypes.length) ns.log(`No solver for: ${unsupportedTypes.join(", ")}`);
+  if (unsupportedTypes.length) ns.print(`No solver for: ${unsupportedTypes.join(", ")}`);
 
   let round = 0;
   while (true) {
     round++;
     const hosts = onlyHost ? [onlyHost] : discover(ns);
-    ns.log(`Round ${round}: ${hosts.length} servers reachable`);
+    ns.print(`Round ${round}: ${hosts.length} servers reachable`);
 
     let found = 0;
     let solved = 0;
     let failed = 0;
     let skippedUnsupported = 0;
-    let skippedNoRoot = 0;
+    let rootFailed = 0;
 
     for (const host of hosts) {
       if (found >= maxContracts) break;
@@ -95,24 +109,31 @@ export async function main(ns: NS): Promise<void> {
       const files = ns.ls(host, ".cct");
       if (files.length === 0) continue;
 
-      // Only bother opening ports if there is actually something to solve here.
-      const solvableHere = files.filter((f) => supported.has(ns.codingcontract.getContractType(f, host)));
-      if (solvableHere.length === 0) {
-        skippedUnsupported += files.length;
-        continue;
+      const contracts: Array<{ fn: string; type: string }> = [];
+      for (const fn of files) {
+        const type = ns.codingcontract.getContractType(fn, host);
+        if (supported.has(type)) contracts.push({ fn, type });
+        else skippedUnsupported++;
+      }
+      if (contracts.length === 0) continue;
+
+      // Root is NOT required by the Coding Contract API, so we solve contracts on
+      // servers we cannot root. Only open ports when the user asked for it.
+      if (openPorts && !gainRoot(ns, host)) {
+        rootFailed++;
+        ns.print(`[root] ${host}: could not gain root (${contracts.length} contracts)`);
       }
 
-      if (!dryRun && !gainRoot(ns, host)) {
-        ns.log(`[skip] ${host}: cannot gain root (${files.length} contracts)`);
-        skippedNoRoot += files.length;
-        continue;
-      }
-
-      for (const fn of solvableHere) {
+      for (const { fn, type } of contracts) {
         if (found >= maxContracts) break;
         found++;
+        const tries = ns.codingcontract.getNumTriesRemaining(fn, host);
+        if (tries <= 0) {
+          ns.print(`[skip] ${host}/${fn}: no attempts left`);
+          continue;
+        }
 
-        const type = ns.codingcontract.getContractType(fn, host);
+
         const data = ns.codingcontract.getData(fn, host);
 
         let answer: unknown;
@@ -120,32 +141,121 @@ export async function main(ns: NS): Promise<void> {
           answer = solvers.solve(type, data);
         } catch (err) {
           failed++;
-          ns.log(`[error] ${host}/${fn} (${type}): ${err instanceof Error ? err.message : String(err)}`);
+          ns.print(`[error] ${host}/${fn} (${type}): ${err instanceof Error ? err.message : String(err)}`);
           continue;
         }
 
         if (dryRun) {
-          ns.log(`[dry] ${host}/${fn} (${type}) -> ${fmt(answer)}`);
+          ns.print(`[dry] ${host}/${fn} (${type}) -> ${fmt(answer)}`);
           continue;
         }
 
         const reward = ns.codingcontract.attempt(answer, fn, host);
         if (reward) {
           solved++;
-          ns.log(`[solved] ${host}/${fn} (${type}) -> ${fmt(answer)} | ${reward}`);
+          ns.print(`[solved] ${host}/${fn} (${type}) -> ${fmt(answer)} | ${reward}`);
         } else {
           failed++;
-          ns.log(`[failed] ${host}/${fn} (${type}) -> ${fmt(answer)}`);
+          ns.print(`[failed] ${host}/${fn} (${type}) -> ${fmt(answer)}`);
         }
       }
     }
 
     ns.tprint(
       `Round ${round}: ${found} contracts | ${solved} solved | ${failed} failed | ` +
-        `${skippedUnsupported} unsupported | ${skippedNoRoot} unreachable`,
+        `${skippedUnsupported} unsupported | ${rootFailed} not rootable`,
     );
 
     if (!loop) break;
     await ns.sleep(interval);
   }
 }
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/** BFS from home over ns.scan() -> every server we can reach. */
+function discover(ns: NS): string[] {
+  const seen = new Set<string>();
+  const queue: string[] = ["home"];
+
+  while (queue.length > 0) {
+    const host = queue.shift() as string;
+    if (seen.has(host)) continue;
+    seen.add(host);
+    for (const next of ns.scan(host)) {
+      if (!seen.has(next)) queue.push(next);
+    }
+  }
+
+  return [...seen];
+}
+
+/**
+ * Open as many ports as the programs you own allow, then NUKE.exe.
+ * Returns true when the server ends up with root access.
+ * Note: NUKE needs *all* required ports open, and ports that are already open
+ * count towards that requirement.
+ */
+function gainRoot(ns: NS, host: string): boolean {
+  if (host === "home") return true;
+
+  const server = ns.getServer(host);
+  if (server.hasAdminRights) return true;
+
+  const required = server.numOpenPortsRequired ?? 0;
+  const openers: Array<[boolean, string, (h: string) => boolean]> = [
+    [server.sshPortOpen, "BruteSSH.exe", (h) => ns.brutessh(h)],
+    [server.ftpPortOpen, "FTPCrack.exe", (h) => ns.ftpcrack(h)],
+    [server.smtpPortOpen, "relaySMTP.exe", (h) => ns.relaysmtp(h)],
+    [server.httpPortOpen, "HTTPWorm.exe", (h) => ns.httpworm(h)],
+    [server.sqlPortOpen, "SQLInject.exe", (h) => ns.sqlinject(h)],
+  ];
+
+  let openPorts = 0;
+  for (const [isOpen, program, run] of openers) {
+    if (isOpen) {
+      openPorts++;
+      continue;
+    }
+    if (!run(host)) {
+      ns.print(`[root] ${host}: do not own ${program}`);
+      continue;
+    }
+    openPorts++;
+  }
+
+  if (openPorts < required) return false;
+  return ns.nuke(host);
+}
+
+/** Biggest server we already have root on that can hold `ram` GB. */
+function richestRootedServer(ns: NS, ram: number): string | null {
+  let best: string | null = null;
+  let bestRam = 0;
+  for (const host of discover(ns)) {
+    const server = ns.getServer(host);
+    if (server.hasAdminRights && server.maxRam >= ram && server.maxRam > bestRam) {
+      best = host;
+      bestRam = server.maxRam;
+    }
+  }
+  return best;
+}
+
+/** Compact, readable rendering of an answer for the log. */
+function fmt(answer: unknown): string {
+  if (answer === null || answer === undefined) return "null";
+  if (typeof answer === "bigint") return `${answer}n`;
+  if (typeof answer === "string") return answer.length > 60 ? `${answer.slice(0, 60)}…` : answer;
+  const s = JSON.stringify(answer, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
+  return s.length > 80 ? `${s.slice(0, 80)}…` : s;
+}
+
+/** `--name value` -> value, or undefined when the flag is absent. */
+function flagValue(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  return i >= 0 && i + 1 < args.length ? args[i + 1] : undefined;
+}
+

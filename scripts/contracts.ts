@@ -33,6 +33,7 @@ function isPrime(n: number): boolean {
 
 /** Sieve of Eratosthenes - matches the game's "Total Number of Primes" solver. */
 function countPrimes(low: number, high: number): number {
+  if (low < 2) low = 2;
   const composite = new Uint8Array(high + 1);
   for (let i = 2; i * i <= high; ++i) {
     if (!composite[i]) {
@@ -288,35 +289,33 @@ function shortestPathInGrid(grid: number[][]): string {
   const rows = grid.length;
   const cols = grid[0].length;
   const dist: number[][] = [];
-  const parent: (number[] | null)[] = [];
+  const parent: Array<Array<[number, number, string] | null>> = [];
   for (let r = 0; r < rows; ++r) {
     dist.push(new Array(cols).fill(-1));
     parent.push(new Array(cols).fill(null));
   }
 
-  const queue: number[][] = [[0, 0]];
+  const queue: Array<[number, number]> = [[0, 0]];
   dist[0][0] = 0;
 
   while (queue.length > 0) {
-    const cell = queue.shift() as number[];
+    const cell = queue.shift() as [number, number];
     const r = cell[0];
     const c = cell[1];
     if (r === rows - 1 && c === cols - 1) break;
 
-    const moves = [
+    const moves: Array<[number, number, string]> = [
       [r - 1, c, "U"],
       [r + 1, c, "D"],
       [r, c - 1, "L"],
       [r, c + 1, "R"],
     ];
-    for (const move of moves) {
-      const nr = move[0];
-      const nc = move[1];
+    for (const [nr, nc, ch] of moves) {
       if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
       if (grid[nr][nc] === 1) continue;
       if (dist[nr][nc] !== -1) continue;
       dist[nr][nc] = dist[r][c] + 1;
-      parent[nr][nc] = [r, c, move[2]];
+      parent[nr][nc] = [r, c, ch];
       queue.push([nr, nc]);
     }
   }
@@ -327,7 +326,8 @@ function shortestPathInGrid(grid: number[][]): string {
   let r = rows - 1;
   let c = cols - 1;
   while (r !== 0 || c !== 0) {
-    const p = parent[r][c] as number[];
+    const p = parent[r][c];
+    if (!p) break;
     path.push(p[2]);
     r = p[0];
     c = p[1];
@@ -729,13 +729,13 @@ function squareRoot(n: bigint): bigint {
 
 function largestRectangle(grid: number[][]): number[][] {
   const rows = grid.length;
-  const cols = grid[0].length;
+  const cols = Math.max(...grid.map((r) => r.length));
   const histograms: number[][] = Array.from({ length: rows }, () => new Array(cols).fill(0));
 
   for (let c = 0; c < cols; ++c) {
     let count = 0;
     for (let r = 0; r < rows; ++r) {
-      if (grid[r][c] === 0) ++count;
+      if ((grid[r][c] ?? 0) === 0) ++count;
       else count = 0;
       histograms[r][c] = count;
     }
@@ -775,6 +775,40 @@ function largestRectangle(grid: number[][]): number[][] {
 // ---------------------------------------------------------------------------
 // Dispatcher
 // ---------------------------------------------------------------------------
+
+/** Every contract type that exists in the game (mirrors CodingContractName). */
+export const CONTRACT_TYPES: string[] = [
+  "Find Largest Prime Factor",
+  "Subarray with Maximum Sum",
+  "Total Ways to Sum",
+  "Total Ways to Sum II",
+  "Spiralize Matrix",
+  "Array Jumping Game",
+  "Array Jumping Game II",
+  "Merge Overlapping Intervals",
+  "Generate IP Addresses",
+  "Algorithmic Stock Trader I",
+  "Algorithmic Stock Trader II",
+  "Algorithmic Stock Trader III",
+  "Algorithmic Stock Trader IV",
+  "Minimum Path Sum in a Triangle",
+  "Unique Paths in a Grid I",
+  "Unique Paths in a Grid II",
+  "Shortest Path in a Grid",
+  "Sanitize Parentheses in Expression",
+  "Find All Valid Math Expressions",
+  "HammingCodes: Integer to Encoded Binary",
+  "HammingCodes: Encoded Binary to Integer",
+  "Proper 2-Coloring of a Graph",
+  "Compression I: RLE Compression",
+  "Compression II: LZ Decompression",
+  "Compression III: LZ Compression",
+  "Encryption I: Caesar Cipher",
+  "Encryption II: Vigenère Cipher",
+  "Square Root",
+  "Total Number of Primes",
+  "Largest Rectangle in a Matrix",
+];
 
 /**
  * Normalise a contract name so accents/punctuation never matter.
@@ -964,6 +998,17 @@ export function selfTest(): string[] {
     if (gotStr !== expStr) {
       failures.push(`${type}: expected ${expStr}, got ${gotStr}`);
     }
+  }
+
+  // Compression III must round-trip through the Compression II decompressor.
+  const lzSample = "aaaaaaaaaaabbbcccabcabcabcabc";
+  const lzEncoded = solve("Compression III: LZ Compression", lzSample) as string;
+  const lzBack = solve("Compression II: LZ Decompression", lzEncoded) as string;
+  if (lzBack !== lzSample) {
+    failures.push(`Compression III: LZ Compression round-trip failed: "${lzEncoded}" -> "${lzBack}"`);
+  }
+  if (lzEncoded.length >= lzSample.length) {
+    failures.push(`Compression III: LZ Compression is not shorter than input (${lzEncoded.length} >= ${lzSample.length})`);
   }
 
   // LZ round-trip check
