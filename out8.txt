@@ -1,0 +1,13 @@
+src/Documentation/doc/en/advanced/corporation/wilson-analytics-advert.md
+src/Documentation/doc/en/basic/codingcontracts.md
+src/Documentation/doc/en/basic/programs.md
+src/Documentation/doc/en/help/tools_and_resources.md
+src/Documentation/doc/en/programming
+src/Documentation/doc/en/programming/darknet.md
+src/Documentation/doc/en/programming/game_frozen.md
+src/Documentation/doc/en/programming/go_algorithms.md
+src/Documentation/doc/en/programming/hackingalgorithms.md
+src/Documentation/doc/en/programming/learn.md
+src/Documentation/doc/en/programming/offlineandbonustime.md
+src/Documentation/doc/en/programming/remote_api.md
+src/Documentation/doc/en/programming/typescript_react.md

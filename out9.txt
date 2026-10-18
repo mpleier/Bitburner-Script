@@ -1,0 +1,8 @@
+exec() scripts on that server, or scp() files to it. (scp() *from* the server is always allowed.)
+exec() on that target, if the target is directly connected to the server that the script is running on,
+exec() to the server remotely, even if it is
+exec("generic-hack.js", "foodnstuff");
+exec("generic-hack.js", "joesguns", {threads: 10});
+exec("foo.js", "foodnstuff", 5, 1, "test");
+exec(script: string, host: string, threadOrOptions?: number | RunOptions, ...args: ScriptArg[]): number;
+getServer(host?: string): Server & { isOnline?: boolean };

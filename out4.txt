@@ -1,0 +1,38 @@
+nuke: (ctx, _host?) => {
+    const server = helpers.getNormalServer(ctx, _host);
+    if (server.hasAdminRights) {
+      helpers.log(ctx, () => `Already have root access to '${server.hostname}'.`);
+      return true;
+    }
+    if (!Player.hasProgram(CompletedProgramName.nuke)) {
+      helpers.log(ctx, () => "You do not have the NUKE.exe virus!");
+      return false;
+    }
+    if (server.openPortCount < server.numOpenPortsRequired) {
+      helpers.log(ctx, () => "Not enough ports opened to use NUKE.exe virus.");
+      return false;
+    }
+    server.hasAdminRights = true;
+    helpers.log(ctx, () => `Executed NUKE.exe virus on '${server.hostname}' to gain root access.`);
+    return true;
+  },
+  brutessh: (ctx, _host?) => {
+    const server = helpers.getNormalServer(ctx, _host);
+    if (!Player.hasProgram(CompletedProgramName.bruteSsh)) {
+      helpers.log(ctx, () => "You do not have the BruteSSH.exe program!");
+      return false;
+    }
+    if (!server.sshPortOpen) {
+      helpers.log(ctx, () => `Executed BruteSSH.exe on '${server.hostname}' to open SSH port (22).`);
+      server.sshPortOpen = true;
+      ++server.openPortCount;
+    } else {
+      helpers.log(ctx, () => `SSH Port (22) already opened on '${server.hostname}'.`);
+    }
+    return true;
+  },
+  ftpcrack: (ctx, _host?) => {
+    const server = helpers.getNormalServer(ctx, _host);
+    if (!Player.hasProgram(CompletedProgramName.ftpCrack)) {
+      helpers.log(ctx, () => "You do not have the FTPCrack.exe program!");
+      

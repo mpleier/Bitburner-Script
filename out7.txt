@@ -1,0 +1,11 @@
+scan: (ctx, _host, _returnOpts) => {
+hasProgram(CompletedProgramName.nuke)) {
+hasProgram(CompletedProgramName.bruteSsh)) {
+hasProgram(CompletedProgramName.ftpCrack)) {
+hasProgram(CompletedProgramName.relaySmtp)) {
+hasProgram(CompletedProgramName.httpWorm)) {
+hasProgram(CompletedProgramName.sqlInject)) {
+exec: (ctx, _scriptname, _host, _thread_or_opt = 1, ..._args) => 
+ls: (ctx, _host, _substring) => {
+getServer: (ctx, _host?) => {
+ls: { ...Player.skills },

@@ -25,11 +25,52 @@ function stripTs(code) {
     let d = 0;
     while (i < n) {
       const c = code[i];
-      if (c === "(" || c === "[" || c === "<") { d++; i++; continue; }
-      if (c === ")" || c === "]" || c === ">") { if (d > 0) { d--; i++; continue; } break; }
+      if (c === "(" || c === "[") { d++; i++; continue; }
+      if (c === ")" || c === "]") { if (d > 0) { d--; i++; continue; } break; }
+      // "<" only opens a generic when it looks like one: ident< Type
+      if (c === "<" && /[A-Za-z_0-9]/.test(code[i - 1] || "") && /[A-Za-z_]/.test(code[i + 1] || "")) {
+        d++; i++; continue;
+      }
+      if (c === ">" && d > 0) { d--; i++; continue; }
       if (d === 0 && stopChars.includes(c)) break;
       i++;
     }
+  }
+
+  function skipString() {
+    // code[i] is a quote character
+    const q = code[i];
+    out += q;
+    i++;
+    while (i < n) {
+      if (code[i] === "\\") { out += code[i] + (code[i + 1] ?? ""); i += 2; continue; }
+      if (code[i] === q) { out += code[i]; i++; return; }
+      out += code[i];
+      i++;
+    }
+  }
+
+  function findCloseParen(start) {
+    // index of the ")" matching the "(" at `start`, ignoring strings
+    let d = 0, p = start;
+    while (p < n) {
+      const ch = code[p];
+      if (ch === '"' || ch === "'" || ch === "`") {
+        const q = ch;
+        p++;
+        while (p < n) {
+          if (code[p] === "\\") { p += 2; continue; }
+          if (code[p] === q) break;
+          p++;
+        }
+        p++;
+        continue;
+      }
+      if (ch === "(") d++;
+      else if (ch === ")") { d--; if (d === 0) return p; }
+      p++;
+    }
+    return p;
   }
 
   function stripParamList() {
@@ -39,6 +80,7 @@ function stripTs(code) {
     let depth = 1;
     while (i < n && depth > 0) {
       const c = code[i];
+      if (c === '"' || c === "'" || c === "`") { skipString(); continue; }
       if (c === "(") { depth++; out += c; i++; continue; }
       if (c === ")") {
         depth--;
@@ -54,7 +96,7 @@ function stripTs(code) {
         }
         continue;
       }
-      if (c === ":") { skipType([",", ")"]); continue; }
+      if (c === ":") { skipType([",", ")", ";", "\n", "="]); continue; }
       out += c; i++;
     }
   }
@@ -83,29 +125,45 @@ function stripTs(code) {
 
     if (c === "(") {
       const before = out.trimEnd();
-      const isFunc = /^\s*(function\s*\*?\s*\w*|\w+)\s*$/.test(before);
-      if (isFunc) {
+      const j = findCloseParen(i);
+      let k = j + 1;
+      while (k < n && (code[k] === " " || code[k] === "\n" || code[k] === "\r")) k++;
+
+      let isArrow = code[k] === "=" && code[k + 1] === ">";
+      let isDef = /function\s*\*?\s*\w*$/.test(before);
+
+      if (!isDef && /[A-Za-z_0-9]$/.test(before)) {
+        if (code[k] === "{") {
+          isDef = true;
+        } else if (code[k] === ":") {
+          // return type? look for a "{" (function body) or "=>" (arrow)
+          let p = k + 1, d = 0;
+          while (p < n) {
+            const ch = code[p];
+            if (ch === "(" || ch === "[" || ch === "<") d++;
+            else if (ch === ")" || ch === "]" || ch === ">") d--;
+            else if (d === 0 && (ch === "{" || ch === "=" || ch === ";" || ch === "\n" || ch === "?")) break;
+            p++;
+          }
+          if (code[p] === "{") isDef = true;
+          else if (code[p] === "=" && code[p + 1] === ">") isArrow = true;
+        }
+      }
+
+      if (isDef || isArrow) {
         stripParamList();
-        // optional return type
-        let j = i;
-        while (j < n && code[j] === " ") j++;
-        if (code[j] === ":") {
-          i = j + 1;
-          skipType(["{", "\n", "="]);
-          out += " ";
+        if (isDef) {
+          // optional return type
+          let m = i;
+          while (m < n && code[m] === " ") m++;
+          if (code[m] === ":") {
+            i = m + 1;
+            skipType(["{", "\n", "="]);
+            out += " ";
+          }
         }
         continue;
       }
-      // arrow param list?
-      let depth = 0, j = i;
-      while (j < n) {
-        if (code[j] === "(") depth++;
-        else if (code[j] === ")") { depth--; if (depth === 0) break; }
-        j++;
-      }
-      let k = j + 1;
-      while (k < n && (code[k] === " " || code[k] === "\n")) k++;
-      if (code[k] === "=" && code[k + 1] === ">") { stripParamList(); continue; }
     }
 
     if (/[A-Za-z_]/.test(c)) {
@@ -144,6 +202,26 @@ const src = stripTs(fs.readFileSync("scripts/contracts.ts", "utf8").replace(/nam
 const lib = new Function(src + "\nreturn { solve, supportedTypes, selfTest, normalize };")();
 const { solve, supportedTypes, selfTest } = lib;
 
+function findCloseParenIn(code, start) {
+  let d = 0;
+  for (let p = start; p < code.length; p++) {
+    const ch = code[p];
+    if (ch === '"' || ch === "'" || ch === "`") {
+      const q = ch;
+      p++;
+      while (p < code.length) {
+        if (code[p] === "\\") { p += 2; continue; }
+        if (code[p] === q) break;
+        p++;
+      }
+      continue;
+    }
+    if (ch === "(") d++;
+    else if (ch === ")") { d--; if (d === 0) return p; }
+  }
+  return -1;
+}
+
 function extractBlocks(file, key) {
   const t = fs.readFileSync(file, "utf8");
   const out = {};
@@ -153,28 +231,52 @@ function extractBlocks(file, key) {
   while ((m = nameRe.exec(t))) spots.push({ name: m[1], start: m.index });
   for (const s of spots) {
     const limit = spots.find((x) => x.start > s.start)?.start ?? t.length;
-    const gi = t.indexOf(key + ":", s.start);
-    if (gi < 0 || gi > limit) continue;
-    const arrow = t.indexOf("=>", gi);
-    if (arrow < 0) continue;
-    let i = arrow + 2;
-    while (i < t.length && " \n\r(".includes(t[i])) i++;
+    const window = t.slice(s.start, limit);
+    const giB = t.indexOf(key + ":", s.start);
+    const giA = t.indexOf(key + "(", s.start);
+    const gi = giB >= 0 && giB < limit ? giB : (giA >= 0 && giA < limit ? giA : -1);
+    if (gi < 0) continue;
+    if (gi < 0 || gi >= limit) continue;
+    const open = t.indexOf("(", gi);
+    if (open < 0 || open > limit) continue;
+    const close = findCloseParenIn(t, open);
+    if (close < 0) continue;
+    const params = (t.slice(open + 1, close).split(",").map((p) => p.trim().split(":")[0])
+      ).filter((p) => /^[A-Za-z_][A-Za-z_0-9]*$/.test(p));
+    let i = close + 1;
+    while (i < t.length && " \n\r".includes(t[i])) i++;
+    if (t[i] === ":") {
+      // method shorthand with a return type: skip it
+      i++;
+      while (i < t.length && t[i] !== "{" && t[i] !== "=" && t[i] !== "\n") i++;
+    }
+    while (i < t.length && " \n\r=>".includes(t[i])) i++;
     if (t[i] !== "{") continue;
     let depth = 0, end = i;
     for (let j = i; j < t.length; j++) {
       if (t[j] === "{") depth++;
       else if (t[j] === "}") { depth--; if (depth === 0) { end = j; break; } }
     }
+    let body = stripTs(t.slice(i + 1, end));
+    body = body.replace(
+      /[A-Za-z_0-9]+\[CodingContractName\.(\w+)\]\.(getAnswer|solver)\(/g,
+      (mm, name, fn) => `__official("${name}", "${fn}")(`
+    );
+    const code = helpersFor(file) + "\n" + body;
     try {
-      out[s.name] = new Function("data", "answer", helpersFor(file) + "\n" + stripTs(t.slice(i + 1, end)));
+      out[s.name] = new Function(...params, "randomBigIntExclusive", code);
     } catch (e) {
-      const body = helpersFor(file) + "\n" + stripTs(t.slice(i + 1, end));
       console.log(`  ! ${file} ${s.name} ${key}: ${e.message}`);
-      console.log("    " + (body.split("\n").find((l) => l.includes("<")) || ""));
+      console.log("    " + (code.split("\n").find((l) => l.includes("<") || l.includes("[")) || ""));
     }
   }
   return out;
 }
+
+globalThis.__official = function (name, fn) {
+  const tbl = fn === "getAnswer" ? refAnswer : refSolver;
+  return tbl[name] || (() => null);
+};
 
 function extractHelpers(file) {
   const t = fs.readFileSync(file, "utf8");
@@ -230,7 +332,7 @@ function deepEq(a, b) {
   return false;
 }
 
-let pass = 0, fail = 0;
+let pass = 0, fail = 0, alt = 0, altPrint = 0;
 const failures = [];
 
 // The Hamming reference file defines its helpers as top-level functions, so
@@ -280,7 +382,7 @@ for (const key of Object.keys(ENUM)) {
   const trials = name === "Square Root" ? 40 : name === "Total Number of Primes" ? 3 : 200;
   for (let t = 0; t < trials; t++) {
     let data;
-    try { data = gen(); } catch (e) { console.log(`SKIP  ${name}: ${e.message}`); break; }
+    try { data = gen(globalThis.randomBigIntExclusive); } catch (e) { console.log(`SKIP  ${name}: ${e.message}`); break; }
 
     if (name === "Square Root") {
       // official generate returns [root, offset]; the contract data is root^2 + offset
@@ -306,19 +408,38 @@ for (const key of Object.keys(ENUM)) {
     } catch (e) {
       officialAnswer = null; // reference getAnswer needs helpers; fall back to solver
     }
-    if (officialAnswer !== null && officialAnswer !== undefined) {
-      if (!deepEq(officialAnswer, mine)) {
-        failures.push(`${name}\n    data=${JSON.stringify(data)}\n    official=${JSON.stringify(officialAnswer)} mine=${JSON.stringify(mine)}`);
-        fail++;
-      } else pass++;
-    } else if (refSolver[key]) {
-      const ok = refSolver[key](data, mine);
-      if (!ok) {
-        failures.push(`${name}\n    data=${JSON.stringify(data)}\n    my answer rejected by official solver: ${JSON.stringify(mine)}`);
-        fail++;
-      } else pass++;
+
+    // The game itself validates with `solver`, which accepts any correct answer
+    // (there can be several equally-short LZ encodings, many valid colorings,
+    // etc.), so use that as the ground truth when available.
+    let ok = false;
+    if (refSolver[key]) {
+      try {
+        ok = !!refSolver[key](data, mine);
+      } catch (e) {
+        ok = officialAnswer !== null && deepEq(officialAnswer, mine);
+      }
+    } else if (officialAnswer !== null && officialAnswer !== undefined) {
+      ok = deepEq(officialAnswer, mine);
     } else {
       console.log(`SKIP  ${name} (no reference answer/solver)`);
+      continue;
+    }
+
+    if (!ok) {
+      failures.push(`${name}\n    data=${JSON.stringify(data)}\n    official=${JSON.stringify(officialAnswer)} mine=${JSON.stringify(mine)}`);
+      fail++;
+    } else if (officialAnswer !== null && !deepEq(officialAnswer, mine)) {
+      // accepted by the game but different from the reference answer: fine,
+      // but worth surfacing so we can eyeball the length
+      alt++;
+      if (altPrint < 5) {
+        altPrint++;
+        console.log(`ALT   ${name}: official len ${String(officialAnswer).length}, mine len ${String(mine).length}`);
+      }
+      pass++;
+    } else {
+      pass++;
     }
   }
 }
