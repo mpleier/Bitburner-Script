@@ -26,6 +26,7 @@
 // ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
+import * as logger from "./logger.ts";
 
 const RAM_NEEDED = 45;
 
@@ -48,11 +49,11 @@ export async function main(ns: NS): Promise<void> {
   const host = ns.getHostname();
 
   if (ns.getServerMaxRam(host) < RAM_NEEDED) {
-    ns.tprint(`stock.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
+    logger.tlog(ns, `stock.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
     return;
   }
 
-  ns.print("=== stock module ===");
+  logger.log(ns, "=== stock module ===");
 
   for (let loop = 0; loop < loops; ++loop) {
     /* Gates. In the real game (src/StockMarket.ts) only getConstants and the
@@ -64,28 +65,28 @@ export async function main(ns: NS): Promise<void> {
        So buy the access before touching the market, and skip the tick when we
        cannot afford it. */
     if (!ns.stock.hasWseAccount()) {
-      if (dryRun) { ns.print(`[dry-run] would buy a WSE account for ${fmt(COST_WSE)}`); return; }
+      if (dryRun) { logger.log(ns, `[dry-run] would buy a WSE account for ${fmt(COST_WSE)}`); return; }
       if (ns.getPlayer().money < COST_WSE) {
-        ns.print(`waiting for ${fmt(COST_WSE)} for a WSE account`);
+        logger.log(ns, `waiting for ${fmt(COST_WSE)} for a WSE account`);
         await ns.sleep(5000);
         continue;
       }
       if (!ns.stock.purchaseWseAccount()) {
-        ns.print("WSE account purchase failed");
+        logger.log(ns, "WSE account purchase failed");
         await ns.sleep(5000);
         continue;
       }
     }
 
     if (!ns.stock.hasTixApiAccess()) {
-      if (dryRun) { ns.print(`[dry-run] would buy TIX API access for ${fmt(COST_TIX)}`); return; }
+      if (dryRun) { logger.log(ns, `[dry-run] would buy TIX API access for ${fmt(COST_TIX)}`); return; }
       if (ns.getPlayer().money < COST_TIX) {
-        ns.print(`waiting for ${fmt(COST_TIX)} for TIX API access`);
+        logger.log(ns, `waiting for ${fmt(COST_TIX)} for TIX API access`);
         await ns.sleep(5000);
         continue;
       }
       if (!ns.stock.purchaseTixApi()) {
-        ns.print("TIX API purchase failed");
+        logger.log(ns, "TIX API purchase failed");
         await ns.sleep(5000);
         continue;
       }
@@ -96,16 +97,16 @@ export async function main(ns: NS): Promise<void> {
     }
 
     if (!ns.stock.has4SDataTixApi()) {
-      if (dryRun) { ns.print(`[dry-run] would buy 4S Market Data TIX API for ${fmt(COST_4S_TIX)}`); return; }
+      if (dryRun) { logger.log(ns, `[dry-run] would buy 4S Market Data TIX API for ${fmt(COST_4S_TIX)}`); return; }
       if (ns.getPlayer().money < COST_4S_TIX) {
-        ns.print(`waiting for ${fmt(COST_4S_TIX)} for 4S Market Data TIX API`);
+        logger.log(ns, `waiting for ${fmt(COST_4S_TIX)} for 4S Market Data TIX API`);
         await ns.sleep(5000);
         continue;
       }
       // Returns false when 4S data is disabled in this bitnode's advanced
       // options, so there is no forecast to read - stop rather than throw.
       if (!ns.stock.purchase4SMarketDataTixApi()) {
-        ns.print("4S Market Data TIX API unavailable (4S data disabled in bitnode options). Exiting.");
+        logger.log(ns, "4S Market Data TIX API unavailable (4S data disabled in bitnode options). Exiting.");
         return;
       }
     }
@@ -162,7 +163,7 @@ export async function main(ns: NS): Promise<void> {
       }
     }
 
-    ns.print(`tick: ${symbols.length} symbols, ${trades} trades, bankroll ${fmt(cash)}`);
+    logger.log(ns, `tick: ${symbols.length} symbols, ${trades} trades, bankroll ${fmt(cash)}`);
     await ns.stock.nextUpdate();
   }
 }

@@ -138,9 +138,11 @@ const SCRIPTS = path.join(process.cwd(), "scripts");
 /** Modules to exercise, in the order the autobot would schedule them. */
 const MODULES = [
   "core.ts",
+  "logger.ts",
   "hacking.ts",
   "_backdoortest.ts",
   "_hacknettest.ts",
+  "_logtest.ts",
   "_bladeburnertest.ts",
   "hacknet.ts",
   "stock.ts",
@@ -818,6 +820,10 @@ function makeNs(args, host, opts) {
     return true;
   };
 
+  /* Text files are per-server, exactly like the game: ns.write() always
+     targets the server the script is running on (ctx.workerScript.getServer()). */
+  const files = {};
+
   const ns = {
     args,
     print,
@@ -827,6 +833,21 @@ function makeNs(args, host, opts) {
     sleep: (ms) => { tick(); return new Promise((r) => setTimeout(r, Math.min(Number(ms) || 0, 5))); },
     toast: (msg) => print(`toast: ${msg}`),
     flags: {},
+
+    /* --- files (RAM cost 0 GB each, per RamCostGenerator.ts) --- */
+    write: (filename, data = "", mode = "a") => {
+      const pathName = String(filename);
+      if (!/\.(txt|json|css|js|jsx|ts|tsx)$/.test(pathName)) {
+        throw new Error(`File path should be a text file or script. ${pathName} is invalid.`);
+      }
+      const text = String(data ?? "");
+      files[pathName] = mode === "w" ? text : (files[pathName] ?? "") + text;
+      // Capture log-file lines in the harness output so the suite stays readable.
+      for (const line of text.split("\n")) if (line.trim()) log.push(`[log] ${line}`);
+    },
+    read: (filename) => files[String(filename)] ?? "",
+    getFileMetadata: (filename) =>
+      files[String(filename)] ? { name: String(filename), size: files[String(filename)].length } : null,
 
     /* --- core --- */
     getHostname: () => host,
@@ -1582,6 +1603,7 @@ function makeNs(args, host, opts) {
   wrapRam(ns);
 
   ns.log = log;
+  ns.files = files;
   return ns;
 }
 
@@ -1670,7 +1692,16 @@ async function main() {
       }
     }
     const elapsed = Date.now() - started;
-    results.push({ file, status, elapsed, log: ns.log, error, ram: ns.ramUsed() });
+    results.push({
+      file,
+      status,
+      elapsed,
+      log: ns.log,
+      error,
+      ram: ns.ramUsed(),
+      logFile: Object.keys(ns.files ?? {})[0] ?? null,
+      logChars: Object.values(ns.files ?? {}).reduce((n, t) => n + t.length, 0),
+    });
   }
 
   /* --- report --- */
@@ -1681,7 +1712,10 @@ async function main() {
 
   let failures = 0;
   for (const r of results) {
-    console.log(`\n--- ${r.file}  [${r.status}]  ${r.elapsed} ms  RAM ${r.ram.toFixed(1)} GB`);
+    console.log(
+      `\n--- ${r.file}  [${r.status}]  ${r.elapsed} ms  RAM ${r.ram.toFixed(1)} GB` +
+      (r.logFile ? `  log ${r.logFile} (${r.logChars} chars)` : ""),
+    );
     if (r.error) {
       failures += 1;
       console.log(`    ERROR: ${r.error.message}`);

@@ -18,6 +18,7 @@ That single command downloads 20 files from GitHub, picks the best server, and s
 |---|---:|---|---|
 | `autobot.ts` | 15 GB | — | Orchestrator: installs, plans, places, starts, monitors |
 | `core.ts` | 11.3 GB* | — | Shared helpers (BFS scan, rooting, formatting, Bladeburner/work conflict guards), statically imported by every module |
+| `logger.ts` | 0.05 GB* | — | Routes every module's output into a log file instead of the terminal |
 | `types.ts` | 0 GB | — | Shared type definitions (type-only import, erased by the transpiler) |
 | `hacking.ts` | 35 GB | — | Buys programs on the darkweb, roots servers, leaves backdoors, weaken → grow → hack, upgrades home RAM |
 | `hacknet.ts` | 21 GB | — | Buys/upgrades nodes, spends hash on the best thing |
@@ -134,10 +135,49 @@ run autobot.ts --kill
 | `--skip corporation,go` | Exclude these modules |
 | `--status` | Print the dashboard once and exit |
 | `--kill` | Kill every module the suite started, then exit |
+| `--logs 50` | Dump the last 50 lines of the log file to the terminal and exit |
+| `--log mybot.txt` | Write the log to a different file |
 | `--ref main` | Which branch/tag to download from |
 
 `install.js` accepts the same flags plus `--open-ports` (root everything you can),
 `--no-run` (install only) and `--server n0006` (force where the bot runs).
+
+---
+
+## Logging: output goes to a file, not the terminal
+
+Every module writes to `autobot_log.txt` on the server it is running on instead of
+printing to the terminal. `logger.ts` is the only file that touches it, and
+`ns.write()` / `ns.read()` cost 0 GB each (RamCostGenerator.ts), so logging is free.
+
+```text
+cat autobot_log.txt            # in the game terminal, on the server you are connected to
+run autobot.ts --logs 50       # dump the last 50 log lines from the terminal
+```
+
+Rules the logger follows:
+
+- **The file is per server.** `ns.write()` always targets the server the script is
+  running on (`ctx.workerScript.getServer()`), so a module running on `n0006` writes
+  `n0006`'s copy of the log. Connect to that server to read it.
+- **Only `.txt`, `.json` and `.css` are valid paths.** `ns.write()` rejects anything
+  else, so `autobot.log` throws "File path should be a text file or script."
+  `--log mylog` is silently turned into `mylog.txt`.
+- **The log is capped at 60 KB.** Once it grows past that the oldest lines are
+  dropped, so a bot that runs for months cannot fill up your file list.
+- **`--verbose` (or `--print`) mirrors the log to the terminal** as it is written.
+- **`--no-log`** keeps the old behaviour: print to the terminal, write nothing.
+- **Milestones and fatal errors still `tprint`.** `logger.tlog()` writes to the file
+  *and* to the console, so "not enough RAM" / "corporation disabled" is never missed.
+  `install.js` is deliberately terminal-only - it is the bootstrap you type by hand.
+- **Logging can never crash a module.** If the write throws, the line falls back to
+  `ns.print()`.
+
+Every line looks like:
+
+```text
+[2026-10-18 14:03:07] home bought BruteSSH.exe for 1.00M
+```
 
 ---
 
@@ -159,7 +199,8 @@ your RAM over time.
 
 ## Per-module flags
 
-Every module can be run standalone. All of them accept `--dry-run` and `--loops N`.
+Every module can be run standalone. All of them accept `--dry-run`, `--loops N`,
+`--log <file>`, `--no-log` and `--verbose`.
 
 | Module | Extra flags |
 |---|---|

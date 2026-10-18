@@ -30,6 +30,7 @@
 // ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
+import * as logger from "./logger.ts";
 
 const RAM_NEEDED = 26;
 
@@ -44,16 +45,16 @@ export async function main(ns: NS): Promise<void> {
   const host = ns.getHostname();
 
   if (ns.getServerMaxRam(host) < RAM_NEEDED) {
-    ns.print(`darknet.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
+    logger.log(ns, `darknet.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
     return;
   }
 
   if (!core.subsystemAvailable(ns, "darknet")) {
-    ns.print("The darknet API is only available in BitNode 10.");
+    logger.log(ns, "The darknet API is only available in BitNode 10.");
     return;
   }
 
-  ns.print("=== darknet module ===");
+  logger.log(ns, "=== darknet module ===");
 
   for (let loop = 0; loop < loops; ++loop) {
     const instability = ns.dnet.getDarknetInstability();
@@ -61,7 +62,7 @@ export async function main(ns: NS): Promise<void> {
     const linked = ns.dnet.getStasisLinkedServers();
 
     const neighbours = ns.dnet.probe();
-    ns.print(
+    logger.log(ns, 
       `${neighbours.length} connected servers | instability auth x` +
         `${instability.authenticationDurationMultiplier.toFixed(2)} ` +
         `(${(instability.authenticationTimeoutChance * 100).toFixed(1)}% timeout) | ` +
@@ -78,7 +79,7 @@ export async function main(ns: NS): Promise<void> {
       const candidates = await harvestCandidates(ns, target, dryRun);
 
       if (dryRun) {
-        ns.print(
+        logger.log(ns, 
           `[dry-run] ${target}: model ${details.modelId}, password ` +
             `${details.passwordLength} chars (${details.passwordFormat}), ` +
             `hint "${details.passwordHint}", ${candidates.length} candidates`,
@@ -87,14 +88,14 @@ export async function main(ns: NS): Promise<void> {
       }
 
       if (details.hasSession) {
-        ns.print(`${target}: already have a session`);
+        logger.log(ns, `${target}: already have a session`);
         continue;
       }
 
       for (const password of candidates.slice(0, maxAttempts)) {
         const result = await ns.dnet.authenticate(target, password);
         if (result.success) {
-          ns.print(`authenticated to ${target} with "${password}"`);
+          logger.log(ns, `authenticated to ${target} with "${password}"`);
           if (linked.length < linkLimit) await ns.dnet.setStasisLink(true);
           break;
         }

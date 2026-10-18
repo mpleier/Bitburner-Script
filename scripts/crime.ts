@@ -29,6 +29,7 @@
 // ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
+import * as logger from "./logger.ts";
 
 const RAM_NEEDED = 43;
 
@@ -64,23 +65,23 @@ export async function main(ns: NS): Promise<void> {
   const host = ns.getHostname();
 
   if (ns.getServerMaxRam(host) < RAM_NEEDED) {
-    ns.tprint(`crime.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
+    logger.tlog(ns, `crime.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
     return;
   }
 
-  ns.print("=== crime module ===");
+  logger.log(ns, "=== crime module ===");
 
   for (let loop = 0; loop < loops; ++loop) {
     const best = bestCrime(ns, focus);
 
     if (best) {
       if (dryRun) {
-        ns.print(`[dry-run] best crime: ${best.crime} -> ${fmt(best.perSec)}/s (chance ${best.chance})`);
+        logger.log(ns, `[dry-run] best crime: ${best.crime} -> ${fmt(best.perSec)}/s (chance ${best.chance})`);
       } else if (core.workBladeburnerConflict(ns)) {
-        ns.print("player's time is taken by a job or a Bladeburner action, skipping crime");
+        logger.log(ns, "player's time is taken by a job or a Bladeburner action, skipping crime");
       } else {
         const result = ns.singularity.commitCrime(best.crime);
-        ns.print(`${best.crime} took ${result} ms`);
+        logger.log(ns, `${best.crime} took ${result} ms`);
       }
     }
 
@@ -118,7 +119,7 @@ function shadowChain(ns: NS, dryRun: boolean): void {
   for (const faction of feeders) {
     const rep = ns.singularity.getFactionRep(faction);
     if (rep >= 100) continue;
-    ns.print(`Shadow needs 100 rep in ${faction} (currently ${rep})`);
+    logger.log(ns, `Shadow needs 100 rep in ${faction} (currently ${rep})`);
   }
 
   // Ask the game what the Shadows actually sell. Anything this returns is an
@@ -127,12 +128,12 @@ function shadowChain(ns: NS, dryRun: boolean): void {
   try {
     offered = ns.singularity.getAugmentationsFromFaction(shadow) ?? [];
   } catch (err) {
-    ns.print(`shadow chain skipped: ${(err as Error).message}`);
+    logger.log(ns, `shadow chain skipped: ${(err as Error).message}`);
     return;
   }
 
   if (offered.length === 0) {
-    ns.print("Shadows of Anarchy has nothing to sell yet (join it first).");
+    logger.log(ns, "Shadows of Anarchy has nothing to sell yet (join it first).");
     return;
   }
 
@@ -149,7 +150,7 @@ function shadowChain(ns: NS, dryRun: boolean): void {
         repReq: ns.singularity.getAugmentationRepReq(aug),
       });
     } catch (err) {
-      ns.print(`skipped ${aug}: ${(err as Error).message}`);
+      logger.log(ns, `skipped ${aug}: ${(err as Error).message}`);
     }
   }
 
@@ -161,18 +162,18 @@ function shadowChain(ns: NS, dryRun: boolean): void {
   let budget = cash;
   for (const item of shopping) {
     if (shadowRep < item.repReq) {
-      ns.print(`need ${fmt(item.repReq)} Shadow rep for ${item.aug} (have ${fmt(shadowRep)})`);
+      logger.log(ns, `need ${fmt(item.repReq)} Shadow rep for ${item.aug} (have ${fmt(shadowRep)})`);
       continue;
     }
     if (item.price <= 0 || item.price > budget) continue;
 
     if (dryRun) {
-      ns.print(`[dry-run] would buy ${item.aug} for ${fmt(item.price)}`);
+      logger.log(ns, `[dry-run] would buy ${item.aug} for ${fmt(item.price)}`);
       budget -= item.price;
       continue;
     }
     if (ns.singularity.purchaseAugmentation(shadow, item.aug)) {
-      ns.print(`bought ${item.aug} for ${fmt(item.price)}`);
+      logger.log(ns, `bought ${item.aug} for ${fmt(item.price)}`);
       budget -= item.price;
       owned.add(item.aug);
     }

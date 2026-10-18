@@ -39,6 +39,7 @@
 // ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
+import * as logger from "./logger.ts";
 
 const RAM_NEEDED = 35;
 
@@ -56,11 +57,11 @@ export async function main(ns: NS): Promise<void> {
 
   const host = ns.getHostname();
   if (core.tryCall(() => ns.getServerMaxRam(host), 0) < RAM_NEEDED) {
-    ns.tprint(`hacking.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
+    logger.tlog(ns, `hacking.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
     return;
   }
 
-  ns.print("=== hacking module ===");
+  logger.log(ns, "=== hacking module ===");
 
   for (let loop = 0; loop < loops; ++loop) {
     // Every step runs inside guard(): a server that vanished mid-scan, a darkweb
@@ -74,7 +75,7 @@ export async function main(ns: NS): Promise<void> {
 
     const target = (await guard(ns, "target selection", () => pickTarget(ns, rooted)) as string | null) ?? null;
     if (target) await guard(ns, `hack cycle on ${target}`, () => cycle(ns, target, core, dryRun));
-    else ns.print("No hackable server yet - grinding hacking level.");
+    else logger.log(ns, "No hackable server yet - grinding hacking level.");
 
     await ns.sleep(interval);
   }
@@ -92,7 +93,7 @@ async function guard(ns: NS, label: string, fn: () => unknown): Promise<unknown>
   try {
     return await fn();
   } catch (err) {
-    ns.print(`${label} failed: ${msg(err)}`);
+    logger.log(ns, `${label} failed: ${msg(err)}`);
     return null;
   }
 }
@@ -141,21 +142,21 @@ function ensurePrograms(ns: NS, core: any, dryRun: boolean, loop: number): void 
   if (missing.length === 0) return;
 
   if (!core.subsystemAvailable(ns, "singularity")) {
-    ns.print(
+    logger.log(ns, 
       `cannot shop on the darkweb: singularity needs Source-File 4 (bitnode ${core.bitnode(ns)})`,
     );
     return;
   }
 
   if (dryRun) {
-    for (const program of missing) ns.print(`[dry-run] would buy ${program}`);
+    for (const program of missing) logger.log(ns, `[dry-run] would buy ${program}`);
     return;
   }
 
   // purchaseTor() returns true when we already own the router, false when the
   // 100k is out of reach. Without it the darkweb is unreachable.
   if (!core.tryCall(() => ns.singularity.purchaseTor(), false)) {
-    ns.print("cannot shop on the darkweb: the TOR router costs 100k and we cannot afford it");
+    logger.log(ns, "cannot shop on the darkweb: the TOR router costs 100k and we cannot afford it");
     return;
   }
 
@@ -163,7 +164,7 @@ function ensurePrograms(ns: NS, core: any, dryRun: boolean, loop: number): void 
     // cost < 0 -> not sold here / no TOR, cost === 0 -> we already own it.
     const cost = core.tryCall(() => ns.singularity.getDarkwebProgramCost(program), -1);
     if (cost < 0) {
-      ns.print(`skipping ${program}: not sold on the darkweb`);
+      logger.log(ns, `skipping ${program}: not sold on the darkweb`);
       continue;
     }
     if (cost === 0) continue;
@@ -171,21 +172,21 @@ function ensurePrograms(ns: NS, core: any, dryRun: boolean, loop: number): void 
     const cash = core.money(ns);
     // Keep a 20% buffer so a purchase never leaves us broke.
     if (cash < cost * 1.2) {
-      ns.print(`skipping ${program}: ${core.fmt(cost)} but we only have ${core.fmt(cash)}`);
+      logger.log(ns, `skipping ${program}: ${core.fmt(cost)} but we only have ${core.fmt(cash)}`);
       continue;
     }
 
     if (core.tryCall(() => ns.singularity.purchaseProgram(program), false)) {
-      ns.print(`bought ${program} for ${core.fmt(cost)}`);
+      logger.log(ns, `bought ${program} for ${core.fmt(cost)}`);
     } else {
-      ns.print(`could not buy ${program}`);
+      logger.log(ns, `could not buy ${program}`);
     }
   }
 
   // NUKE.exe is the one program the darkweb never sells, so say it once and move
   // on: ns.nuke() returns false without it, which is a soft failure.
   if (loop === 0 && !owned.has("NUKE.exe")) {
-    ns.print("NUKE.exe is not sold on the darkweb - it has to be created or found; nuke() will fail until we have it");
+    logger.log(ns, "NUKE.exe is not sold on the darkweb - it has to be created or found; nuke() will fail until we have it");
   }
 }
 
@@ -196,7 +197,7 @@ function rootNetwork(ns: NS, core: any, dryRun: boolean): string[] {
 
   for (const host of candidates) {
     if (dryRun) {
-      ns.print(`[dry-run] could root ${host} (${ns.getServerNumPortsRequired(host)} ports)`);
+      logger.log(ns, `[dry-run] could root ${host} (${ns.getServerNumPortsRequired(host)} ports)`);
       continue;
     }
     // A server can disappear (or move) between the scan and the nuke, and
@@ -205,10 +206,10 @@ function rootNetwork(ns: NS, core: any, dryRun: boolean): string[] {
     try {
       if (core.rootServer(ns, host)) {
         rooted.push(host);
-        ns.print(`rooted ${host}`);
+        logger.log(ns, `rooted ${host}`);
       }
     } catch (err) {
-      ns.print(`rooting ${host} failed: ${msg(err)}`);
+      logger.log(ns, `rooting ${host} failed: ${msg(err)}`);
     }
   }
   return rooted;
@@ -286,27 +287,27 @@ async function installBackdoors(ns: NS, core: any, dryRun: boolean, allowDaemon:
     const blocker = backdoorBlocker(ns, host, allowDaemon);
     if (blocker) {
       // "already installed" is the boring case, do not spam the log with it.
-      if (blocker !== "backdoor already installed") ns.print(`skipping backdoor on ${host}: ${blocker}`);
+      if (blocker !== "backdoor already installed") logger.log(ns, `skipping backdoor on ${host}: ${blocker}`);
       continue;
     }
 
     if (dryRun) {
-      ns.print(`[dry-run] would install a backdoor on ${host}`);
+      logger.log(ns, `[dry-run] would install a backdoor on ${host}`);
       continue;
     }
 
     // installBackdoor() has no target argument: it acts on the server we are
     // connected to, so connect() must succeed before we call it.
     if (!connectTo(ns, host)) {
-      ns.print(`skipping backdoor on ${host}: not reachable from our network position`);
+      logger.log(ns, `skipping backdoor on ${host}: not reachable from our network position`);
       continue;
     }
 
     try {
       await ns.singularity.installBackdoor();
-      ns.print(`backdoor installed on ${host}`);
+      logger.log(ns, `backdoor installed on ${host}`);
     } catch (err) {
-      ns.print(`backdoor on ${host} failed: ${msg(err)}`);
+      logger.log(ns, `backdoor on ${host} failed: ${msg(err)}`);
     }
   }
 }
@@ -320,16 +321,16 @@ function upgradeHome(ns: NS, dryRun: boolean): void {
 
   const ramCost = core.tryCall(() => ns.singularity.getUpgradeHomeRamCost(), Infinity);
   if (ramCost > 0 && cash > ramCost * 4) {
-    if (dryRun) ns.print(`[dry-run] would upgrade home RAM for ${core.fmt(ramCost)}`);
+    if (dryRun) logger.log(ns, `[dry-run] would upgrade home RAM for ${core.fmt(ramCost)}`);
     else if (core.tryCall(() => ns.singularity.upgradeHomeRam(), false)) {
-      ns.print(`home RAM now ${core.tryCall(() => ns.getServerMaxRam("home"), 0)} GB`);
+      logger.log(ns, `home RAM now ${core.tryCall(() => ns.getServerMaxRam("home"), 0)} GB`);
     }
   }
 
   const coreCost = core.tryCall(() => ns.singularity.getUpgradeHomeCoresCost(), Infinity);
   if (coreCost > 0 && cash > coreCost * 6) {
-    if (dryRun) ns.print(`[dry-run] would upgrade home cores for ${core.fmt(coreCost)}`);
-    else if (core.tryCall(() => ns.singularity.upgradeHomeCores(), false)) ns.print("home cores upgraded");
+    if (dryRun) logger.log(ns, `[dry-run] would upgrade home cores for ${core.fmt(coreCost)}`);
+    else if (core.tryCall(() => ns.singularity.upgradeHomeCores(), false)) logger.log(ns, "home cores upgraded");
   }
 }
 
@@ -382,7 +383,7 @@ async function cycle(ns: NS, target: string, core: any, dryRun: boolean): Promis
   // this call, so each read is wrapped and a server with no money is skipped.
   const maxMoney = core.tryCall(() => ns.getServerMaxMoney(target), 0);
   if (maxMoney <= 0) {
-    ns.print(`${target} has no money to farm - skipping`);
+    logger.log(ns, `${target} has no money to farm - skipping`);
     return;
   }
   const minSec = core.tryCall(() => ns.getServerMinSecurityLevel(target), 1);
@@ -390,7 +391,7 @@ async function cycle(ns: NS, target: string, core: any, dryRun: boolean): Promis
   const curMoney = core.tryCall(() => ns.getServerMoneyAvailable(target), 0);
 
   if (dryRun) {
-    ns.print(
+    logger.log(ns, 
       `[dry-run] ${target}: money ${core.fmt(curMoney)}/${core.fmt(maxMoney)}, ` +
         `sec ${curSec}/${minSec}, ${threads} threads`,
     );
@@ -415,7 +416,7 @@ async function cycle(ns: NS, target: string, core: any, dryRun: boolean): Promis
   if (perThread > 0) {
     const t = Math.min(threads, Math.max(1, Math.floor(0.9 / perThread)));
     const gained = await ns.hack(target, { threads: t });
-    ns.print(`hacked ${target} with ${t} threads -> ${core.fmt(gained)}`);
+    logger.log(ns, `hacked ${target} with ${t} threads -> ${core.fmt(gained)}`);
   }
 }
 

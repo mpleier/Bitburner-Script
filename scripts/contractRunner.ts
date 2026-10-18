@@ -43,8 +43,12 @@ type Solvers = {
   supportedTypes: () => string[];
 };
 
+import * as logger from "./logger.ts";
+
 /** Worst-case RAM the script needs (see header). */
 const RAM_NEEDED = 29;
+
+
 
 export async function main(ns: NS): Promise<void> {
   ns.clearLog();
@@ -62,14 +66,14 @@ export async function main(ns: NS): Promise<void> {
 
   // contracts.ts is dynamically imported: 0 GB RAM.
   if (!ns.ls(currentServer, "contracts.ts").length) {
-    ns.tprint("Error: contracts.ts must be on the same server as contractRunner.ts");
+    logger.tlog(ns, "Error: contracts.ts must be on the same server as contractRunner.ts");
     return;
   }
   const solvers: Solvers = await ns.dynamicImport("./contracts.ts");
 
   if (args.includes("--selftest")) {
     const failures = solvers.selfTest();
-    ns.tprint(failures.length ? `Solver self-test FAILED:\n${failures.join("\n")}` : "Solver self-test: all passed");
+    logger.tlog(ns, failures.length ? `Solver self-test FAILED:\n${failures.join("\n")}` : "Solver self-test: all passed");
     return;
   }
 
@@ -80,23 +84,23 @@ export async function main(ns: NS): Promise<void> {
       ns.scp("contracts.ts", host);
       ns.scp("contractRunner.ts", host);
       ns.exec("contractRunner.ts", host, 1, ...args);
-      ns.tprint(`Relocated to ${host} (needs ${RAM_NEEDED} GB, ${host} has ${ns.getServerMaxRam(host)} GB)`);
+      logger.tlog(ns, `Relocated to ${host} (needs ${RAM_NEEDED} GB, ${host} has ${ns.getServerMaxRam(host)} GB)`);
       return;
     }
-    ns.tprint(`Not enough RAM on ${currentServer} (${ns.getServerMaxRam(currentServer)} GB < ${RAM_NEEDED} GB) and no rooted server is big enough.`);
+    logger.tlog(ns, `Not enough RAM on ${currentServer} (${ns.getServerMaxRam(currentServer)} GB < ${RAM_NEEDED} GB) and no rooted server is big enough.`);
     return;
   }
 
   const supported = new Set(solvers.supportedTypes());
   const allTypes = ns.codingcontract.getContractTypes();
   const unsupportedTypes = allTypes.filter((t) => !supported.has(t));
-  if (unsupportedTypes.length) ns.print(`No solver for: ${unsupportedTypes.join(", ")}`);
+  if (unsupportedTypes.length) logger.log(ns, `No solver for: ${unsupportedTypes.join(", ")}`);
 
   let round = 0;
   while (true) {
     round++;
     const hosts = onlyHost ? [onlyHost] : discover(ns);
-    ns.print(`Round ${round}: ${hosts.length} servers reachable`);
+    logger.log(ns, `Round ${round}: ${hosts.length} servers reachable`);
 
     let found = 0;
     let solved = 0;
@@ -122,7 +126,7 @@ export async function main(ns: NS): Promise<void> {
       // servers we cannot root. Only open ports when the user asked for it.
       if (openPorts && !gainRoot(ns, host)) {
         rootFailed++;
-        ns.print(`[root] ${host}: could not gain root (${contracts.length} contracts)`);
+        logger.log(ns, `[root] ${host}: could not gain root (${contracts.length} contracts)`);
       }
 
       for (const { fn, type } of contracts) {
@@ -130,7 +134,7 @@ export async function main(ns: NS): Promise<void> {
         found++;
         const tries = ns.codingcontract.getNumTriesRemaining(fn, host);
         if (tries <= 0) {
-          ns.print(`[skip] ${host}/${fn}: no attempts left`);
+          logger.log(ns, `[skip] ${host}/${fn}: no attempts left`);
           continue;
         }
 
@@ -142,27 +146,27 @@ export async function main(ns: NS): Promise<void> {
           answer = solvers.solve(type, data);
         } catch (err) {
           failed++;
-          ns.print(`[error] ${host}/${fn} (${type}): ${err instanceof Error ? err.message : String(err)}`);
+          logger.log(ns, `[error] ${host}/${fn} (${type}): ${err instanceof Error ? err.message : String(err)}`);
           continue;
         }
 
         if (dryRun) {
-          ns.print(`[dry] ${host}/${fn} (${type}) -> ${fmt(answer)}`);
+          logger.log(ns, `[dry] ${host}/${fn} (${type}) -> ${fmt(answer)}`);
           continue;
         }
 
         const reward = ns.codingcontract.attempt(answer, fn, host);
         if (reward) {
           solved++;
-          ns.print(`[solved] ${host}/${fn} (${type}) -> ${fmt(answer)} | ${reward}`);
+          logger.log(ns, `[solved] ${host}/${fn} (${type}) -> ${fmt(answer)} | ${reward}`);
         } else {
           failed++;
-          ns.print(`[failed] ${host}/${fn} (${type}) -> ${fmt(answer)}`);
+          logger.log(ns, `[failed] ${host}/${fn} (${type}) -> ${fmt(answer)}`);
         }
       }
     }
 
-    ns.tprint(
+    logger.tlog(ns, 
       `Round ${round}: ${found} contracts | ${solved} solved | ${failed} failed | ` +
         `${skippedUnsupported} unsupported | ${rootFailed} not rootable`,
     );
@@ -240,10 +244,10 @@ function gainRoot(ns: NS, host: string): boolean {
     try {
       opened = run(host);
     } catch (err) {
-      ns.print(`[root] ${host}: ${err instanceof Error ? err.message : String(err)}`);
+      logger.log(ns, `[root] ${host}: ${err instanceof Error ? err.message : String(err)}`);
     }
     if (!opened) {
-      ns.print(`[root] ${host}: do not own ${program}`);
+      logger.log(ns, `[root] ${host}: do not own ${program}`);
       continue;
     }
     openPorts++;
@@ -253,7 +257,7 @@ function gainRoot(ns: NS, host: string): boolean {
   try {
     return ns.nuke(host);
   } catch (err) {
-    ns.print(`[root] ${host}: nuke failed (${err instanceof Error ? err.message : String(err)})`);
+    logger.log(ns, `[root] ${host}: nuke failed (${err instanceof Error ? err.message : String(err)})`);
     return false;
   }
 }

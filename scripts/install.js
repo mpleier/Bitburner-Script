@@ -33,7 +33,7 @@ const DEFAULT_REF = "main";
 
 /** Every file the suite needs, in download order. */
 const FILES = [
-  "core.ts", "types.ts", "contracts.ts", "autobot.ts",
+  "core.ts", "logger.ts", "types.ts", "contracts.ts", "autobot.ts",
   "hacking.ts", "hacknet.ts", "contractRunner.ts", "factions.ts",
   "jobs.ts", "crime.ts", "gang.ts", "bladeburner.ts",
   "corporation.ts", "stock.ts", "stanek.ts", "sleeves.ts",

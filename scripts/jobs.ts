@@ -33,6 +33,7 @@
 // ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
+import * as logger from "./logger.ts";
 
 const RAM_NEEDED = 24;
 
@@ -68,13 +69,13 @@ export async function main(ns: NS): Promise<void> {
   const host = ns.getHostname();
 
   if (ns.getServerMaxRam(host) < RAM_NEEDED) {
-    ns.tprint(`jobs.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
+    logger.tlog(ns, `jobs.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
     return;
   }
 
   const allCompanies = companies(ns).slice(0, limit);
   const allFields = fields(ns);
-  ns.print(`=== jobs module (${allCompanies.length} companies) ===`);
+  logger.log(ns, `=== jobs module (${allCompanies.length} companies) ===`);
 
   for (let loop = 0; loop < loops; ++loop) {
     const jobs = ns.getPlayer().jobs;
@@ -91,7 +92,7 @@ export async function main(ns: NS): Promise<void> {
     }
 
     if (!best) {
-      ns.print("No company will hire us yet - raise stats or join a faction first.");
+      logger.log(ns, "No company will hire us yet - raise stats or join a faction first.");
       break;
     }
 
@@ -100,14 +101,14 @@ export async function main(ns: NS): Promise<void> {
       const position = jobs[company];
       if (!position) continue;
       if (positionScore(ns, company, position) < best.score) {
-        if (dryRun) ns.print(`[dry-run] would quit ${company}`);
+        if (dryRun) logger.log(ns, `[dry-run] would quit ${company}`);
         else ns.singularity.quitJob(company);
       }
     }
 
     // 3. Apply for the best position and work there.
     if (dryRun) {
-      ns.print(
+      logger.log(ns, 
         `[dry-run] would work at ${best.company} (score ${best.score}, ` +
           `favor gain ${best.gain.toFixed(2)})`,
       );
@@ -115,9 +116,9 @@ export async function main(ns: NS): Promise<void> {
       const position = applyBest(ns, best.company, allFields);
       if (position) {
         if (core.workBladeburnerConflict(ns)) {
-          ns.print(`Bladeburner action running - not working at ${best.company} (it would cancel the action)`);
+          logger.log(ns, `Bladeburner action running - not working at ${best.company} (it would cancel the action)`);
         } else if (!ns.singularity.isBusy()) {
-          ns.print(`working at ${best.company} as ${position}`);
+          logger.log(ns, `working at ${best.company} as ${position}`);
           ns.singularity.workForCompany(best.company);
         }
       }

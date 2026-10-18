@@ -19,6 +19,7 @@
 // ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
+import * as logger from "./logger.ts";
 
 /** GB of RAM Bitburner allocates for this script. */
 const RAM_NEEDED = 21;
@@ -34,7 +35,7 @@ export async function main(ns: NS): Promise<void> {
   const spendHashes = !args.includes("--no-hashes");
   const loops = core.maxLoops(args);
 
-  ns.print("=== hacknet module ===");
+  logger.log(ns, "=== hacknet module ===");
 
   for (let loop = 0; loop < loops; ++loop) {
     const cash = ns.getPlayer().money;
@@ -88,14 +89,14 @@ export async function main(ns: NS): Promise<void> {
           const cost = ns.hacknet.hashCost(upg, 1);
           if (cost > 0 && hashes >= cost * 2) {
             if (!dryRun) ns.hacknet.spendHashes(upg);
-            ns.print(`spent ${cost} hash on ${upg} (level ${level + 1})`);
+            logger.log(ns, `spent ${cost} hash on ${upg} (level ${level + 1})`);
             break;
           }
         }
       }
     }
 
-    ns.print(`nodes: ${nodes}/${cap}, hash: ${ns.hacknet.numHashes()}/${ns.hacknet.hashCapacity()}`);
+    logger.log(ns, `nodes: ${nodes}/${cap}, hash: ${ns.hacknet.numHashes()}/${ns.hacknet.hashCapacity()}`);
     await ns.sleep(interval);
   }
 }

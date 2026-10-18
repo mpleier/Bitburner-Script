@@ -14,6 +14,7 @@
  */
 
 import * as core from "./core.ts";
+import * as logger from "./logger.ts";
 
 /** core.ts helpers (11.3 GB) + Bladeburner/singularity calls this test makes: 19.35 GB worst case. */
 const RAM_NEEDED = 20;
@@ -21,7 +22,7 @@ const RAM_NEEDED = 20;
 export async function main(ns: NS): Promise<void> {
   const here = ns.getHostname();
   if (ns.getServerMaxRam(here) < RAM_NEEDED) {
-    ns.tprint(`_bladeburnertest.ts needs ${RAM_NEEDED} GB; ${here} has ${ns.getServerMaxRam(here)} GB.`);
+    logger.tlog(ns, `_bladeburnertest.ts needs ${RAM_NEEDED} GB; ${here} has ${ns.getServerMaxRam(here)} GB.`);
     return;
   }
 
@@ -31,8 +32,8 @@ export async function main(ns: NS): Promise<void> {
   };
 
   const simulacrum = core.hasBladesSimulacrum(ns);
-  ns.print(`BladesSimulacrum installed: ${simulacrum}`);
-  ns.print(`in Bladeburner: ${ns.bladeburner.inBladeburner()}`);
+  logger.log(ns, `BladesSimulacrum installed: ${simulacrum}`);
+  logger.log(ns, `in Bladeburner: ${ns.bladeburner.inBladeburner()}`);
 
   /* 1. Idle player: nothing cancels a Bladeburner action. */
   expect(!ns.singularity.isBusy(), "mock should start with no currentWork");
@@ -69,9 +70,9 @@ export async function main(ns: NS): Promise<void> {
   expect(!core.workBladeburnerConflict(ns), "no work and no action means no conflict");
 
   if (failures.length === 0) {
-    ns.print("PASS: Bladeburner/work conflict guards behave like the real game");
+    logger.log(ns, "PASS: Bladeburner/work conflict guards behave like the real game");
   } else {
-    for (const f of failures) ns.print(`FAIL: ${f}`);
+    for (const f of failures) logger.log(ns, `FAIL: ${f}`);
     throw new Error(`Bladeburner guard test failed (${failures.length} assertions)`);
   }
 }

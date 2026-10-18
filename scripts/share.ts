@@ -22,8 +22,12 @@
 // Bitburner injects its API typings as a global declaration file, so `NS`
 // needs no import (globals.d.ts mirrors that for local `tsc` checks).
 
+import * as logger from "./logger.ts";
+
 /** RAM this script reserves: 1.6 base + share 2.4 + Bladeburner probe 1 + host checks 0.1. */
 const RAM_NEEDED = 6;
+
+
 
 export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
@@ -32,7 +36,7 @@ export async function main(ns: NS): Promise<void> {
 
   const host = ns.getHostname();
   if (ns.getServerMaxRam(host) < RAM_NEEDED) {
-    ns.tprint(`share.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
+    logger.tlog(ns, `share.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
     return;
   }
 
@@ -41,7 +45,7 @@ export async function main(ns: NS): Promise<void> {
   while (true) {
     // Cheap gate first: inBladeburner() costs 0 GB and never throws.
     if (!ignoreBladeburner && ns.bladeburner.inBladeburner() && ns.bladeburner.getCurrentAction() != null) {
-      ns.print("Bladeburner is running an action; sharing would cancel it. Waiting.");
+      logger.log(ns, "Bladeburner is running an action; sharing would cancel it. Waiting.");
       await ns.sleep(1000);
       continue;
     }

@@ -21,7 +21,11 @@
  *   node mocksuite.mjs _backdoortest --verbose
  */
 
+import * as logger from "./logger.ts";
+
 const RAM_NEEDED = 8;
+
+
 
 export async function main(ns: NS): Promise<void> {
   const log: string[] = [];
@@ -47,11 +51,11 @@ export async function main(ns: NS): Promise<void> {
     if (outcome !== expected) failures.push(`${label}: expected "${expected}", got "${outcome}"`);
   };
 
-  ns.print("=== backdoor guard test ===");
+  logger.log(ns, "=== backdoor guard test ===");
 
   const here = ns.getHostname();
   if (ns.getServerMaxRam(here) < RAM_NEEDED) {
-    ns.tprint(`_backdoortest.ts needs ${RAM_NEEDED} GB; ${here} has ${ns.getServerMaxRam(here)} GB.`);
+    logger.tlog(ns, `_backdoortest.ts needs ${RAM_NEEDED} GB; ${here} has ${ns.getServerMaxRam(here)} GB.`);
     return;
   }
 
@@ -98,10 +102,10 @@ export async function main(ns: NS): Promise<void> {
   }
   if (!hacknetRejected) failures.push("hacknet node: getServerRequiredHackingLevel should throw");
 
-  for (const line of log) ns.print(line);
+  for (const line of log) logger.log(ns, line);
 
   if (failures.length > 0) {
     throw new Error(`backdoor guard test failed:\n  ${failures.join("\n  ")}`);
   }
-  ns.tprint(`backdoor guard test: ${log.length}/${log.length} assertions passed`);
+  logger.tlog(ns, `backdoor guard test: ${log.length}/${log.length} assertions passed`);
 }

@@ -23,8 +23,13 @@
  *
  * Flags understood by every module:
  *   --dry-run     make no state-changing calls, just report what would happen
- *   --verbose     extra logging
+ *   --verbose     extra logging (also mirrors the log file to the terminal)
  *   --interval N  milliseconds between loops (default 1000)
+ *
+ * Output goes to a log file, not the terminal - see logger.ts:
+ *   --log <file>  log file name (default autobot_log.txt, .txt is added)
+ *   --no-log      print to the terminal instead of the log file
+ *   --print       alias for --verbose
  */
 
 // Bitburner injects its API typings as a global declaration file, so `NS`

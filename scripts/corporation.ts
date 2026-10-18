@@ -39,6 +39,7 @@ import type { CityName, CorpIndustryName } from "./types";
 // ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
+import * as logger from "./logger.ts";
 
 const RAM_NEEDED = 462;
 
@@ -69,37 +70,37 @@ export async function main(ns: NS): Promise<void> {
   const host = ns.getHostname();
 
   if (ns.getServerMaxRam(host) < RAM_NEEDED) {
-    ns.tprint(`corporation.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
-    ns.tprint("Upgrade home RAM, or run it on a server with more memory.");
+    logger.tlog(ns, `corporation.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
+    logger.tlog(ns, "Upgrade home RAM, or run it on a server with more memory.");
     return;
   }
 
   if (!core.subsystemAvailable(ns, "corporation")) {
-    ns.tprint("Corporations are disabled in this bitnode.");
+    logger.tlog(ns, "Corporations are disabled in this bitnode.");
     return;
   }
 
-  ns.print("=== corporation module ===");
+  logger.log(ns, "=== corporation module ===");
 
   for (let loop = 0; loop < loops; ++loop) {
     if (!ns.corporation.hasCorporation()) {
       const check = ns.corporation.canCreateCorporation(true);
       if (check !== "Success") {
-        ns.tprint(`corporation.ts: cannot create a corporation (${check}). Exiting.`);
+        logger.tlog(ns, `corporation.ts: cannot create a corporation (${check}). Exiting.`);
         return;
       }
       if (dryRun) {
-        ns.print("[dry-run] would create a corporation");
+        logger.log(ns, "[dry-run] would create a corporation");
         // There is nothing to manage without a corporation, and every
         // Corporation API except hasCorporation/canCreateCorporation -
         // nextUpdate included - throws "Must own a corporation."
         return;
       }
       if (!ns.corporation.createCorporation("Bitburner Industries", true)) {
-        ns.tprint("corporation.ts: createCorporation failed even though canCreateCorporation said Success. Exiting.");
+        logger.tlog(ns, "corporation.ts: createCorporation failed even though canCreateCorporation said Success. Exiting.");
         return;
       }
-      ns.print("corporation created");
+      logger.log(ns, "corporation created");
     }
 
     // From here on a corporation is guaranteed to exist, so the rest of the
@@ -116,7 +117,7 @@ export async function main(ns: NS): Promise<void> {
     manageUpgrades(ns, funds, dryRun);
     manageInvestors(ns, corp, dryRun);
 
-    ns.print(
+    logger.log(ns, 
       `${corp.name} | funds ${core.fmt(funds)} | revenue ${core.fmt(corp.revenue)}/s | ` +
         `expenses ${core.fmt(corp.expenses)}/s | divisions ${corp.divisions.length} | ` +
         `valuation ${core.fmt(corp.valuation)}`,
@@ -141,14 +142,14 @@ function openDivisions(ns: NS, corp: any, maxDivisions: number, dryRun: boolean)
     if (corp.divisions.includes(name)) continue;
 
     if (dryRun) {
-      ns.print(`[dry-run] would open ${industry} (cost ${money0(data.startingCost)})`);
+      logger.log(ns, `[dry-run] would open ${industry} (cost ${money0(data.startingCost)})`);
       continue;
     }
     try {
       ns.corporation.expandIndustry(industry, name);
-      ns.print(`opened division ${industry}`);
+      logger.log(ns, `opened division ${industry}`);
     } catch (e) {
-      ns.print(`could not open ${industry}: ${String(e)}`);
+      logger.log(ns, `could not open ${industry}: ${String(e)}`);
     }
   }
 }
@@ -161,7 +162,7 @@ function manageOffices(ns: NS, corp: any, funds: number, dryRun: boolean): void 
     for (const city of CITIES) {
       if (!div.cities.includes(city)) {
         if (dryRun) {
-          ns.print(`[dry-run] would expand ${division} to ${city}`);
+          logger.log(ns, `[dry-run] would expand ${division} to ${city}`);
           continue;
         }
         try {
@@ -177,13 +178,13 @@ function manageOffices(ns: NS, corp: any, funds: number, dryRun: boolean): void 
       // Grow the office when the upgrade is cheap compared to our funds.
       const upgradeCost = ns.corporation.getOfficeSizeUpgradeCost(division, city, 2);
       if (upgradeCost > 0 && upgradeCost < funds / 10) {
-        if (dryRun) ns.print(`[dry-run] would grow ${division}/${city} office for ${money0(upgradeCost)}`);
+        if (dryRun) logger.log(ns, `[dry-run] would grow ${division}/${city} office for ${money0(upgradeCost)}`);
         else ns.corporation.upgradeOfficeSize(division, city, 2);
       }
 
       // Hire until the office is full.
       if (office.numEmployees < office.size) {
-        if (dryRun) ns.print(`[dry-run] would hire ${office.size - office.numEmployees} in ${division}/${city}`);
+        if (dryRun) logger.log(ns, `[dry-run] would hire ${office.size - office.numEmployees} in ${division}/${city}`);
         else for (let i = 0; i < office.size - office.numEmployees; ++i) ns.corporation.hireEmployee(division, city);
       }
 
@@ -223,7 +224,7 @@ function balanceJobs(ns: NS, division: string, city: CityName, office: any, dryR
   for (let i = 0; i < jobs.length; ++i) {
     if ((office.employeeJobs[jobs[i]] ?? 0) === targets[i]) continue;
     if (dryRun) {
-      ns.print(`[dry-run] ${division}/${city}: ${jobs[i]} -> ${targets[i]} employees`);
+      logger.log(ns, `[dry-run] ${division}/${city}: ${jobs[i]} -> ${targets[i]} employees`);
       continue;
     }
     ns.corporation.setJobAssignment(division, city, jobs[i], targets[i]);
@@ -237,7 +238,7 @@ function manageWarehouses(ns: NS, corp: any, funds: number, dryRun: boolean): vo
     for (const city of div.cities) {
       if (!ns.corporation.hasWarehouse(division, city)) {
         if (dryRun) {
-          ns.print(`[dry-run] would buy a warehouse for ${division} in ${city}`);
+          logger.log(ns, `[dry-run] would buy a warehouse for ${division} in ${city}`);
           continue;
         }
         try {
@@ -252,7 +253,7 @@ function manageWarehouses(ns: NS, corp: any, funds: number, dryRun: boolean): vo
       const cost = ns.corporation.getUpgradeWarehouseCost(division, city, 1);
 
       if (cost > 0 && free < wh.size * 0.2 && cost < funds / 10) {
-        if (dryRun) ns.print(`[dry-run] would upgrade ${division}/${city} warehouse for ${money0(cost)}`);
+        if (dryRun) logger.log(ns, `[dry-run] would upgrade ${division}/${city} warehouse for ${money0(cost)}`);
         else ns.corporation.upgradeWarehouse(division, city, 1);
       }
     }
@@ -273,11 +274,11 @@ function manageProducts(ns: NS, corp: any, funds: number, dryRun: boolean): void
       if (budget > 1000) {
         const name = `${division} Product ${div.products.length + 1}`;
         if (dryRun) {
-          ns.print(`[dry-run] would design ${name} (${money0(budget)} design, ${money0(budget)} marketing)`);
+          logger.log(ns, `[dry-run] would design ${name} (${money0(budget)} design, ${money0(budget)} marketing)`);
         } else {
           try {
             ns.corporation.makeProduct(division, city, name, budget, budget);
-            ns.print(`designed ${name}`);
+            logger.log(ns, `designed ${name}`);
           } catch {
             /* not enough materials / research yet */
           }
@@ -292,7 +293,7 @@ function manageProducts(ns: NS, corp: any, funds: number, dryRun: boolean): void
       // Ad verts raise awareness/popularity, which is pure profit.
       const adCost = ns.corporation.getHireAdVertCost(division);
       if (adCost > 0 && adCost < funds / 15) {
-        if (dryRun) ns.print(`[dry-run] would hire an ad vert for ${division} (${money0(adCost)})`);
+        if (dryRun) logger.log(ns, `[dry-run] would hire an ad vert for ${division} (${money0(adCost)})`);
         else ns.corporation.hireAdVert(division);
       }
 
@@ -311,12 +312,12 @@ function manageUpgrades(ns: NS, funds: number, dryRun: boolean): void {
     if (cost <= 0 || cost > funds / 10) continue;
 
     if (dryRun) {
-      ns.print(`[dry-run] would unlock ${unlock} for ${money0(cost)}`);
+      logger.log(ns, `[dry-run] would unlock ${unlock} for ${money0(cost)}`);
       continue;
     }
     try {
       ns.corporation.purchaseUnlock(unlock);
-      ns.print(`unlocked ${unlock}`);
+      logger.log(ns, `unlocked ${unlock}`);
     } catch {
       /* ignore */
     }
@@ -328,7 +329,7 @@ function manageUpgrades(ns: NS, funds: number, dryRun: boolean): void {
     if (cost <= 0 || cost > funds / 12 || level >= 10) continue;
 
     if (dryRun) {
-      ns.print(`[dry-run] would level ${upgrade} (${level} -> ${level + 1}) for ${money0(cost)}`);
+      logger.log(ns, `[dry-run] would level ${upgrade} (${level} -> ${level + 1}) for ${money0(cost)}`);
       continue;
     }
     try {
@@ -344,17 +345,17 @@ function manageInvestors(ns: NS, corp: any, dryRun: boolean): void {
   const offer = ns.corporation.getInvestmentOffer();
   if (offer.funds > 0 && offer.round <= 4) {
     if (dryRun) {
-      ns.print(`[dry-run] would accept investment offer: ${money0(offer.funds)} for ${offer.shares} shares`);
+      logger.log(ns, `[dry-run] would accept investment offer: ${money0(offer.funds)} for ${offer.shares} shares`);
     } else if (ns.corporation.acceptInvestmentOffer()) {
-      ns.print(`accepted investment of ${money0(offer.funds)}`);
+      logger.log(ns, `accepted investment of ${money0(offer.funds)}`);
     }
   }
 
   if (!corp.public && corp.valuation > 1e9) {
     if (dryRun) {
-      ns.print("[dry-run] would go public");
+      logger.log(ns, "[dry-run] would go public");
     } else if (ns.corporation.goPublic(1_000_000)) {
-      ns.print("corporation is public");
+      logger.log(ns, "corporation is public");
       ns.corporation.issueDividends(0.5);
     }
   }

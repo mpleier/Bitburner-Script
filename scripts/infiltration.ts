@@ -25,6 +25,7 @@
 // ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
+import * as logger from "./logger.ts";
 
 const RAM_NEEDED = 27;
 
@@ -39,11 +40,11 @@ export async function main(ns: NS): Promise<void> {
   const host = ns.getHostname();
 
   if (ns.getServerMaxRam(host) < RAM_NEEDED) {
-    ns.print(`infiltration.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
+    logger.log(ns, `infiltration.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
     return;
   }
 
-  ns.print("=== infiltration module ===");
+  logger.log(ns, "=== infiltration module ===");
 
   for (let loop = 0; loop < loops; ++loop) {
     const stats = core.stats(ns);
@@ -79,10 +80,10 @@ export async function main(ns: NS): Promise<void> {
       (a, b) => (Number(b.doable) - Number(a.doable)) || (b.value - a.value),
     );
 
-    ns.print(`--- best infiltration targets (${scored.length} locations) ---`);
+    logger.log(ns, `--- best infiltration targets (${scored.length} locations) ---`);
     for (let i = 0; i < Math.min(top, scored.length); ++i) {
       const s = scored[i];
-      ns.print(
+      logger.log(ns, 
         `${i + 1}. ${s.name} (${s.city}) | value ${core.fmt(s.value)} | difficulty ${s.difficulty} | ` +
           `rep ${s.reward.tradeRep} | cash ${core.fmt(s.reward.sellCash)} | SoA ${s.reward.SoARep} | ` +
           `${s.doable ? "doable" : "stats too low"}`,

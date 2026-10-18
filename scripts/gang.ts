@@ -33,6 +33,7 @@
 // ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
+import * as logger from "./logger.ts";
 
 const RAM_NEEDED = 46;
 
@@ -62,24 +63,24 @@ export async function main(ns: NS): Promise<void> {
   const host = ns.getHostname();
 
   if (ns.getServerMaxRam(host) < RAM_NEEDED) {
-    ns.tprint(`gang.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
+    logger.tlog(ns, `gang.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
     return;
   }
 
   if (!core.subsystemAvailable(ns, "gang")) {
-    ns.tprint("Gangs are not available here - need BitNode 2 or Source-File 2.");
+    logger.tlog(ns, "Gangs are not available here - need BitNode 2 or Source-File 2.");
     return;
   }
 
   // Outside BitNode 2 gangs only recruit you once karma is low enough (<= -54000).
   if (core.bitnode(ns) !== 2 && core.karma(ns) > -54000) {
-    ns.tprint(
+    logger.tlog(ns, 
       `Gangs need karma <= -54000 outside BitNode 2 (current karma ${core.karma(ns)}).`,
     );
     return;
   }
 
-  ns.print("=== gang module ===");
+  logger.log(ns, "=== gang module ===");
 
   for (let loop = 0; loop < loops; ++loop) {
     if (!ns.gang.inGang()) {
@@ -96,7 +97,7 @@ export async function main(ns: NS): Promise<void> {
     territoryWarfare(ns, gang, dryRun);
 
     const members = ns.gang.getMemberNames().length;
-    ns.print(
+    logger.log(ns, 
       `members ${members} | respect ${gang.respect.toFixed(1)} | ` +
         `territory ${(gang.territory * 100).toFixed(1)}% | ` +
         `income ${core.fmt(gang.moneyGainRate)}/cycle | wanted ${gang.wantedLevel.toFixed(1)}`,
@@ -117,15 +118,15 @@ function createGang(ns: NS, core: any, dryRun: boolean): void {
 
   for (const faction of order) {
     if (dryRun) {
-      ns.print(`[dry-run] would try to create a ${faction} gang`);
+      logger.log(ns, `[dry-run] would try to create a ${faction} gang`);
       continue;
     }
     if (ns.gang.createGang(faction)) {
-      ns.print(`gang created with ${faction}`);
+      logger.log(ns, `gang created with ${faction}`);
       return;
     }
   }
-  ns.print("could not create a gang - join one of the gang factions first");
+  logger.log(ns, "could not create a gang - join one of the gang factions first");
 }
 
 /** Recruit as many members as respect allows. */
@@ -141,10 +142,10 @@ function recruit(ns: NS, gang: any, dryRun: boolean): void {
   for (let i = 0; i < available; ++i) {
     const name = `Member ${members + i + 1}`;
     if (dryRun) {
-      ns.print(`[dry-run] would recruit ${name} (respect ${needed.toFixed(1)} needed)`);
+      logger.log(ns, `[dry-run] would recruit ${name} (respect ${needed.toFixed(1)} needed)`);
       continue;
     }
-    if (ns.gang.recruitMember(name)) ns.print(`recruited ${name}`);
+    if (ns.gang.recruitMember(name)) logger.log(ns, `recruited ${name}`);
     else break;
   }
 }
@@ -181,10 +182,10 @@ function assignTasks(ns: NS, gang: any, dryRun: boolean): void {
     if (best === member.task) continue;
 
     if (dryRun) {
-      ns.print(`[dry-run] ${name}: ${member.task} -> ${best}`);
+      logger.log(ns, `[dry-run] ${name}: ${member.task} -> ${best}`);
       continue;
     }
-    if (ns.gang.setMemberTask(name, best)) ns.print(`${name} assigned to ${best}`);
+    if (ns.gang.setMemberTask(name, best)) logger.log(ns, `${name} assigned to ${best}`);
   }
 }
 
@@ -248,11 +249,11 @@ function buyEquipment(ns: NS, gang: any, dryRun: boolean): void {
     if (!best) continue;
 
     if (dryRun) {
-      ns.print(`[dry-run] would buy ${best} for ${memberName} (${money0(cache[best].cost)})`);
+      logger.log(ns, `[dry-run] would buy ${best} for ${memberName} (${money0(cache[best].cost)})`);
       continue;
     }
     if (ns.gang.purchaseEquipment(memberName, best)) {
-      ns.print(`${memberName} bought ${best} for ${money0(cache[best].cost)}`);
+      logger.log(ns, `${memberName} bought ${best} for ${money0(cache[best].cost)}`);
     }
   }
 }
@@ -268,12 +269,12 @@ function ascend(ns: NS, ascendAt: number, dryRun: boolean): void {
     if (points < ascendAt) continue;
 
     if (dryRun) {
-      ns.print(`[dry-run] would ascend ${name} (${points.toFixed(0)} ascension points)`);
+      logger.log(ns, `[dry-run] would ascend ${name} (${points.toFixed(0)} ascension points)`);
       continue;
     }
     const result = ns.gang.ascendMember(name);
     if (result) {
-      ns.print(
+      logger.log(ns, 
         `ascended ${name}: hack x${result.hack.toFixed(2)} str x${result.str.toFixed(2)} ` +
           `(-${result.respect.toFixed(1)} respect)`,
       );
@@ -297,11 +298,11 @@ function territoryWarfare(ns: NS, gang: any, dryRun: boolean): void {
   if (gang.territoryWarfareEngaged === engage) return;
 
   if (dryRun) {
-    ns.print(`[dry-run] would set territory warfare to ${engage}`);
+    logger.log(ns, `[dry-run] would set territory warfare to ${engage}`);
     return;
   }
   ns.gang.setTerritoryWarfare(engage);
-  ns.print(`territory warfare ${engage ? "ON" : "OFF"}`);
+  logger.log(ns, `territory warfare ${engage ? "ON" : "OFF"}`);
 }
 
 function money0(n: number): string {

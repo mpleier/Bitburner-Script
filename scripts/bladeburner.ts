@@ -37,6 +37,7 @@ import type { BladeburnerActionType, BladeburnerSkillName, CityName } from "./ty
 // ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
+import * as logger from "./logger.ts";
 
 const RAM_NEEDED = 78;
 
@@ -77,23 +78,23 @@ export async function main(ns: NS): Promise<void> {
   const host = ns.getHostname();
 
   if (ns.getServerMaxRam(host) < RAM_NEEDED) {
-    ns.tprint(`bladeburner.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
+    logger.tlog(ns, `bladeburner.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
     return;
   }
 
   if (!core.subsystemAvailable(ns, "bladeburner")) {
-    ns.tprint("Bladeburner is disabled in this bitnode.");
+    logger.tlog(ns, "Bladeburner is disabled in this bitnode.");
     return;
   }
 
-  ns.print("=== bladeburner module ===");
+  logger.log(ns, "=== bladeburner module ===");
 
   for (let loop = 0; loop < loops; ++loop) {
     if (!ns.bladeburner.inBladeburner()) {
-      if (dryRun) ns.print("[dry-run] would join the Bladeburner division");
-      else if (ns.bladeburner.joinBladeburnerDivision()) ns.print("joined Bladeburner");
+      if (dryRun) logger.log(ns, "[dry-run] would join the Bladeburner division");
+      else if (ns.bladeburner.joinBladeburnerDivision()) logger.log(ns, "joined Bladeburner");
       else {
-        ns.print("cannot join Bladeburner yet (needs SF4 / rank 100 rep path)");
+        logger.log(ns, "cannot join Bladeburner yet (needs SF4 / rank 100 rep path)");
         return;
       }
       await ns.sleep(1000);
@@ -110,21 +111,21 @@ export async function main(ns: NS): Promise<void> {
       // company job, faction work, share or crime is running would immediately
       // cancel it (the game shows a "Bladeburner action cancelled" message).
       if (core.wouldCancelBladeburner(ns)) {
-        ns.print("player is working (job/faction/share/crime) - Bladeburner actions get cancelled, skipping");
+        logger.log(ns, "player is working (job/faction/share/crime) - Bladeburner actions get cancelled, skipping");
       } else {
         const choice = bestAction(ns);
         if (choice) {
           if (dryRun) {
-            ns.print(`[dry-run] would start ${choice.type} "${choice.name}" (score ${choice.score.toFixed(3)})`);
+            logger.log(ns, `[dry-run] would start ${choice.type} "${choice.name}" (score ${choice.score.toFixed(3)})`);
           } else {
             ns.bladeburner.startAction(choice.type, choice.name);
-            ns.print(`started ${choice.type} "${choice.name}"`);
+            logger.log(ns, `started ${choice.type} "${choice.name}"`);
           }
         }
       }
     }
 
-    ns.print(
+    logger.log(ns, 
       `rank ${ns.bladeburner.getRank()} | stamina ${ns.bladeburner.getStamina()[0].toFixed(1)}/` +
         `${ns.bladeburner.getStamina()[1]} | skill points ${ns.bladeburner.getSkillPoints()}`,
     );
@@ -143,11 +144,11 @@ function upgradeSkills(ns: NS, dryRun: boolean): void {
     if (cost <= 0 || cost > points) continue;
 
     if (dryRun) {
-      ns.print(`[dry-run] would upgrade ${skill} (level ${ns.bladeburner.getSkillLevel(skill)}, cost ${cost})`);
+      logger.log(ns, `[dry-run] would upgrade ${skill} (level ${ns.bladeburner.getSkillLevel(skill)}, cost ${cost})`);
       continue;
     }
     if (ns.bladeburner.upgradeSkill(skill)) {
-      ns.print(`upgraded ${skill} to level ${ns.bladeburner.getSkillLevel(skill)}`);
+      logger.log(ns, `upgraded ${skill} to level ${ns.bladeburner.getSkillLevel(skill)}`);
       break; // skill points are scarce; one upgrade per cycle
     }
   }
@@ -170,10 +171,10 @@ function moveCity(ns: NS, dryRun: boolean): void {
   if (best === current) return;
 
   if (dryRun) {
-    ns.print(`[dry-run] would move from ${current} to ${best} (chaos ${bestChaos.toFixed(2)})`);
+    logger.log(ns, `[dry-run] would move from ${current} to ${best} (chaos ${bestChaos.toFixed(2)})`);
     return;
   }
-  if (ns.bladeburner.switchCity(best)) ns.print(`moved to ${best}`);
+  if (ns.bladeburner.switchCity(best)) logger.log(ns, `moved to ${best}`);
 }
 
 /**

@@ -27,6 +27,7 @@
 // ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
+import * as logger from "./logger.ts";
 
 const RAM_NEEDED = 60;
 
@@ -40,11 +41,11 @@ export async function main(ns: NS): Promise<void> {
   const host = ns.getHostname();
 
   if (ns.getServerMaxRam(host) < RAM_NEEDED) {
-    ns.print(`go.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
+    logger.log(ns, `go.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
     return;
   }
 
-  ns.print("=== go module ===");
+  logger.log(ns, "=== go module ===");
 
   for (let loop = 0; loop < loops; ++loop) {
     const board = ns.go.getBoardState();
@@ -52,23 +53,23 @@ export async function main(ns: NS): Promise<void> {
 
     if (me === "None") {
       const state = ns.go.getGameState();
-      ns.print(`game over: white ${state.whiteScore} / black ${state.blackScore}`);
+      logger.log(ns, `game over: white ${state.whiteScore} / black ${state.blackScore}`);
       await ns.sleep(1000);
       continue;
     }
 
     const move = bestMove(ns, board);
     if (!move) {
-      ns.print("no valid move - passing");
+      logger.log(ns, "no valid move - passing");
       if (!dryRun) await ns.go.passTurn();
       continue;
     }
 
     if (dryRun) {
-      ns.print(`[dry-run] best move ${move.x},${move.y} (score ${move.score.toFixed(2)})`);
+      logger.log(ns, `[dry-run] best move ${move.x},${move.y} (score ${move.score.toFixed(2)})`);
     } else {
       const result = await ns.go.makeMove(move.x, move.y);
-      ns.print(`played ${move.x},${move.y} (score ${move.score.toFixed(2)}) -> opponent ${result.type} ${result.x ?? "-"},${result.y ?? "-"}`);
+      logger.log(ns, `played ${move.x},${move.y} (score ${move.score.toFixed(2)}) -> opponent ${result.type} ${result.x ?? "-"},${result.y ?? "-"}`);
     }
   }
 }

@@ -26,6 +26,7 @@
 // ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
+import * as logger from "./logger.ts";
 
 const RAM_NEEDED = 26;
 
@@ -40,16 +41,16 @@ export async function main(ns: NS): Promise<void> {
   const host = ns.getHostname();
 
   if (ns.getServerMaxRam(host) < RAM_NEEDED) {
-    ns.tprint(`stanek.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
+    logger.tlog(ns, `stanek.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
     return;
   }
 
   if (!core.subsystemAvailable(ns, "stanek")) {
-    ns.tprint("Stanek's Gift needs BitNode 13 or Source-File 13 - skipping.");
+    logger.tlog(ns, "Stanek's Gift needs BitNode 13 or Source-File 13 - skipping.");
     return;
   }
 
-  ns.print("=== stanek module ===");
+  logger.log(ns, "=== stanek module ===");
 
   const BOOSTER = core.tryCall(() => ns.enums.FragmentType.Booster, 18);
 
@@ -59,11 +60,11 @@ export async function main(ns: NS): Promise<void> {
 
     if (width <= 0 || height <= 0) {
       if (!core.tryCall(() => ns.stanek.acceptGift(), false)) {
-        ns.print("Stanek's Gift is not available yet");
+        logger.log(ns, "Stanek's Gift is not available yet");
         await ns.sleep(1000);
         continue;
       }
-      ns.print("accepted the gift");
+      logger.log(ns, "accepted the gift");
       continue;
     }
 
@@ -73,21 +74,21 @@ export async function main(ns: NS): Promise<void> {
     for (const f of active) {
       // Booster fragments cannot be charged; they only boost their neighbours.
       if (f.type === BOOSTER) {
-        if (dryRun) ns.print(`[dry-run] skipping booster ${f.id} at ${f.x},${f.y}`);
+        if (dryRun) logger.log(ns, `[dry-run] skipping booster ${f.id} at ${f.x},${f.y}`);
         continue;
       }
       if (dryRun) {
-        ns.print(`[dry-run] would charge fragment ${f.id} at ${f.x},${f.y} (${f.numCharge}/${f.highestCharge})`);
+        logger.log(ns, `[dry-run] would charge fragment ${f.id} at ${f.x},${f.y} (${f.numCharge}/${f.highestCharge})`);
         continue;
       }
       try {
         await ns.stanek.chargeFragment(f.x, f.y);
       } catch (err) {
-        ns.print(`could not charge fragment at ${f.x},${f.y}: ${err}`);
+        logger.log(ns, `could not charge fragment at ${f.x},${f.y}: ${err}`);
       }
     }
 
-    ns.print(
+    logger.log(ns, 
       `placed ${active.length} fragments | total power ${active.reduce((a: number, f: any) => a + f.power, 0)}`,
     );
 
@@ -148,19 +149,19 @@ function packFragments(ns: NS, width: number, height: number, dryRun: boolean): 
     }
 
     if (!best) {
-      ns.print(`no room for fragment ${def.id} (${def.type}, power ${def.power})`);
+      logger.log(ns, `no room for fragment ${def.id} (${def.type}, power ${def.power})`);
       continue;
     }
 
     if (!ns.stanek.canPlaceFragment(best.x, best.y, best.rotation, def.id)) continue;
 
     if (dryRun) {
-      ns.print(`[dry-run] would place fragment ${def.id} (${def.type}) at ${best.x},${best.y} rot ${best.rotation}`);
+      logger.log(ns, `[dry-run] would place fragment ${def.id} (${def.type}) at ${best.x},${best.y} rot ${best.rotation}`);
     } else if (!ns.stanek.placeFragment(best.x, best.y, best.rotation, def.id)) {
-      ns.print(`failed to place fragment ${def.id} (${def.type})`);
+      logger.log(ns, `failed to place fragment ${def.id} (${def.type})`);
       continue;
     } else {
-      ns.print(`placed fragment ${def.id} (${def.type}) at ${best.x},${best.y} rot ${best.rotation}`);
+      logger.log(ns, `placed fragment ${def.id} (${def.type}) at ${best.x},${best.y} rot ${best.rotation}`);
     }
 
     for (const c of best.cells) occupied.add(c);
@@ -171,7 +172,7 @@ function packFragments(ns: NS, width: number, height: number, dryRun: boolean): 
     const def = defs.find((d) => d.id === Number(id));
     return a + (def ? def.power * n : 0);
   }, 0);
-  ns.print(
+  logger.log(ns, 
     `grid ${width}x${height}: ${occupied.size}/${width * height} cells filled, ` +
       `${Object.values(counts).reduce((a, n) => a + n, 0)} fragments, total power ${totalPower}`,
   );

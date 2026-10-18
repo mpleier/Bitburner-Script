@@ -36,6 +36,7 @@
 // ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
+import * as logger from "./logger.ts";
 
 const RAM_NEEDED = 55;
 
@@ -58,23 +59,23 @@ export async function main(ns: NS): Promise<void> {
   const host = ns.getHostname();
 
   if (ns.getServerMaxRam(host) < RAM_NEEDED) {
-    ns.tprint(`factions.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
+    logger.tlog(ns, `factions.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
     return;
   }
 
   const joined = new Set<Faction>();
-  ns.print("=== faction module ===");
+  logger.log(ns, "=== faction module ===");
 
   for (let loop = 0; loop < loops; ++loop) {
     // 1. Join every faction that invited us.
     for (const faction of ns.singularity.checkFactionInvitations()) {
       if (dryRun) {
-        ns.print(`[dry-run] would join ${faction}`);
+        logger.log(ns, `[dry-run] would join ${faction}`);
         joined.add(faction);
         continue;
       }
       if (ns.singularity.joinFaction(faction)) {
-        ns.print(`joined ${faction}`);
+        logger.log(ns, `joined ${faction}`);
         joined.add(faction);
       }
     }
@@ -88,8 +89,8 @@ export async function main(ns: NS): Promise<void> {
     const best = bestFactionToWork(ns, joined);
     if (best) {
       const workType = pickWorkType(ns, best.faction);
-      if (dryRun) ns.print(`[dry-run] would work ${workType} for ${best.faction}`);
-      else if (core.workBladeburnerConflict(ns)) ns.print("Bladeburner action running - skipping faction work");
+      if (dryRun) logger.log(ns, `[dry-run] would work ${workType} for ${best.faction}`);
+      else if (core.workBladeburnerConflict(ns)) logger.log(ns, "Bladeburner action running - skipping faction work");
       else if (!ns.singularity.isBusy()) ns.singularity.workForFaction(best.faction, workType);
     }
 
@@ -103,7 +104,7 @@ export async function main(ns: NS): Promise<void> {
     if (installAugs && !dryRun) {
       const owned = ns.singularity.getOwnedAugmentations(true);
       if (owned.length > 0) {
-        ns.print(`installing ${owned.length} augmentations - the run will reset`);
+        logger.log(ns, `installing ${owned.length} augmentations - the run will reset`);
         ns.singularity.installAugmentations("autobot.ts");
         return;
       }
@@ -156,13 +157,13 @@ function donate(ns: NS, joined: Set<Faction>, dryRun: boolean): void {
     if (wanted.length === 0) continue;
 
     if (dryRun) {
-      ns.print(`[dry-run] would donate to ${faction} (favor ${favor})`);
+      logger.log(ns, `[dry-run] would donate to ${faction} (favor ${favor})`);
       continue;
     }
 
     const amount = Math.floor(favor / favorNeeded / 2);
     if (amount > 0 && ns.singularity.donateToFaction(faction, amount)) {
-      ns.print(`donated favor to ${faction}`);
+      logger.log(ns, `donated favor to ${faction}`);
     }
   }
 }
@@ -190,11 +191,11 @@ function buyAugmentations(ns: NS, joined: Set<Faction>, dryRun: boolean): void {
       if (price <= 0 || price > cash / 2) continue;
 
       if (dryRun) {
-        ns.print(`[dry-run] would buy ${aug} from ${faction} for ${fmt(price)}`);
+        logger.log(ns, `[dry-run] would buy ${aug} from ${faction} for ${fmt(price)}`);
         continue;
       }
       if (ns.singularity.purchaseAugmentation(faction, aug)) {
-        ns.print(`bought ${aug} for ${fmt(price)}`);
+        logger.log(ns, `bought ${aug} for ${fmt(price)}`);
         owned.add(aug);
       }
     }

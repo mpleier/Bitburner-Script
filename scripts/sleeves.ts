@@ -32,6 +32,7 @@ import type { CrimeType, GymType, SleevePerson } from "./types";
 // ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
+import * as logger from "./logger.ts";
 
 const RAM_NEEDED = 48;
 
@@ -65,22 +66,22 @@ export async function main(ns: NS): Promise<void> {
   const host = ns.getHostname();
 
   if (ns.getServerMaxRam(host) < RAM_NEEDED) {
-    ns.print(`sleeves.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
+    logger.log(ns, `sleeves.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
     return;
   }
 
   if (!core.subsystemAvailable(ns, "sleeves")) {
-    ns.print("Sleeves need Source-File 10 (or BitNode 10). Skipping.");
+    logger.log(ns, "Sleeves need Source-File 10 (or BitNode 10). Skipping.");
     return;
   }
 
   const count = ns.sleeve.getNumSleeves();
   if (count === 0) {
-    ns.print("No sleeves - nothing to do.");
+    logger.log(ns, "No sleeves - nothing to do.");
     return;
   }
 
-  ns.print(`=== sleeves module (${count} sleeves) ===`);
+  logger.log(ns, `=== sleeves module (${count} sleeves) ===`);
 
   for (let loop = 0; loop < loops; ++loop) {
     for (let i = 0; i < count; ++i) {
@@ -89,14 +90,14 @@ export async function main(ns: NS): Promise<void> {
 
       // Shock eats most of the experience a sleeve contributes.
       if (sleeve.shock > 20) {
-        if (dryRun) ns.print(`[dry-run] sleeve ${i}: shock recovery (shock ${sleeve.shock})`);
+        if (dryRun) logger.log(ns, `[dry-run] sleeve ${i}: shock recovery (shock ${sleeve.shock})`);
         else ns.sleeve.setToShockRecovery(i);
         continue;
       }
 
       // Low sync means the sleeve is barely contributing - synchronise it.
       if (sleeve.sync < syncTarget) {
-        if (dryRun) ns.print(`[dry-run] sleeve ${i}: synchronize (sync ${sleeve.sync})`);
+        if (dryRun) logger.log(ns, `[dry-run] sleeve ${i}: synchronize (sync ${sleeve.sync})`);
         else ns.sleeve.setToSynchronize(i);
         continue;
       }
@@ -109,7 +110,7 @@ export async function main(ns: NS): Promise<void> {
     for (let i = 0; i < count; ++i) {
       const s = ns.sleeve.getSleeve(i);
       const t = ns.sleeve.getTask(i);
-      ns.print(
+      logger.log(ns, 
         `sleeve ${i}: sync ${s.sync} shock ${s.shock} | ` +
           `hack ${Math.floor(s.skills.hacking)} str ${Math.floor(s.skills.strength)} ` +
           `cha ${Math.floor(s.skills.charisma)} | ` +
@@ -155,6 +156,6 @@ function assign(ns: NS, index: number, sleeve: SleevePerson, dryRun: boolean): v
     done = dryRun ? true : ns.sleeve.setToCommitCrime(index, crime);
   }
 
-  if (dryRun) ns.print(`[dry-run] sleeve ${index} would be given a ${bestStat} task`);
-  else if (done) ns.print(`sleeve ${index} assigned to a ${bestStat} task`);
+  if (dryRun) logger.log(ns, `[dry-run] sleeve ${index} would be given a ${bestStat} task`);
+  else if (done) logger.log(ns, `sleeve ${index} assigned to a ${bestStat} task`);
 }

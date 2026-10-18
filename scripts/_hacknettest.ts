@@ -12,13 +12,14 @@
  * game does. Run with: node mocksuite.mjs _hacknettest
  */
 import * as core from "./core.ts";
+import * as logger from "./logger.ts";
 
 export async function main(ns: NS): Promise<void> {
   const hosts = core.discover(ns);
   const hacknet = hosts.filter((h: string) => core.isHacknetServer(h));
 
   if (hacknet.length === 0) {
-    ns.print("no hacknet nodes in the mock network - nothing to test");
+    logger.log(ns, "no hacknet nodes in the mock network - nothing to test");
     return;
   }
 
@@ -40,7 +41,7 @@ export async function main(ns: NS): Promise<void> {
     }
   }
 
-  ns.print(`hacknet guard ok: ${hacknet.length} nodes (${hacknet.join(", ")})`);
-  ns.print(`rootedServers(): ${rooted.join(", ")} (hacknet nodes excluded)`);
-  ns.print(`scriptHosts():   ${scriptable.join(", ")} (hacknet nodes included)`);
+  logger.log(ns, `hacknet guard ok: ${hacknet.length} nodes (${hacknet.join(", ")})`);
+  logger.log(ns, `rootedServers(): ${rooted.join(", ")} (hacknet nodes excluded)`);
+  logger.log(ns, `scriptHosts():   ${scriptable.join(", ")} (hacknet nodes included)`);
 }

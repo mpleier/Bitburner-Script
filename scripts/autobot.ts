@@ -36,6 +36,7 @@
 // ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
+import * as logger from "./logger.ts";
 
 const REPO = "mpleier/Bitburner-Script";
 const DEFAULT_REF = "main";
@@ -85,7 +86,7 @@ const MODULES: Module[] = [
 ];
 
 /** Files every module needs next to it. */
-const SUPPORT_FILES = ["core.ts", "types.ts", "contracts.ts"];
+const SUPPORT_FILES = ["core.ts", "logger.ts", "types.ts", "contracts.ts"];
 
 /** Files the installer downloads when --install is used. */
 const SUITE_FILES = MODULES.map((m) => m.file).concat(SUPPORT_FILES, ["install.js"]);
@@ -105,14 +106,22 @@ export async function main(ns: NS): Promise<void> {
 
   const host = ns.getHostname();
   if (ns.getServerMaxRam(host) < AUTOBOT_RAM) {
-    ns.tprint(`autobot.ts needs ~${AUTOBOT_RAM} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
-    ns.tprint("Run it on home once home has 16 GB, or use --only hacking,hacknet.");
+    logger.tlog(ns, `autobot.ts needs ~${AUTOBOT_RAM} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
+    logger.tlog(ns, "Run it on home once home has 16 GB, or use --only hacking,hacknet.");
     return;
   }
 
   if (core.hasFlag(args, "--kill")) {
     killSuite(ns);
-    ns.tprint("autobot: killed every module in the suite.");
+    logger.tlog(ns, "autobot: killed every module in the suite.");
+    return;
+  }
+
+  /* `--logs [N]` dumps the tail of the log file instead of running anything. */
+  if (core.hasFlag(args, "--logs")) {
+    const n = core.numOr(args, "--logs", 40);
+    const text = logger.tail(ns, n);
+    logger.tlog(ns, text || `log ${logger.logFile(ns)} is empty on ${host} - run a module first.`);
     return;
   }
 
@@ -120,8 +129,8 @@ export async function main(ns: NS): Promise<void> {
     await installSuite(ns, ref);
   }
 
-  ns.print("=== autobot ===");
-  ns.print(`bitnode ${core.bitnode(ns)} | money ${core.fmt(core.money(ns))} | hacking ${ns.getHackingLevel()}`);
+  logger.log(ns, "=== autobot ===");
+  logger.log(ns, `bitnode ${core.bitnode(ns)} | money ${core.fmt(core.money(ns))} | hacking ${ns.getHackingLevel()}`);
 
   for (let loop = 0; loop < loops; ++loop) {
     const plan = makePlan(ns, core, only, skip);
@@ -144,13 +153,13 @@ async function installSuite(ns: NS, ref: string): Promise<void> {
 
   for (const file of SUITE_FILES) {
     if (have.has(file)) {
-      ns.print(`have ${file}`);
+      logger.log(ns, `have ${file}`);
       continue;
     }
     if (!(await ns.wget(base + file, file, here))) {
-      ns.print(`FAILED to download ${base}${file}`);
+      logger.log(ns, `FAILED to download ${base}${file}`);
     } else {
-      ns.print(`downloaded ${file} (${ref})`);
+      logger.log(ns, `downloaded ${file} (${ref})`);
     }
   }
 }
@@ -220,7 +229,7 @@ function startPlan(ns: NS, plan: Placement[], dryRun: boolean): number {
     if (ns.scriptRunning(p.module.file, p.host)) continue;
 
     if (dryRun) {
-      ns.print(`[dry-run] would run ${p.module.file} on ${p.host} (${p.module.ram} GB)`);
+      logger.log(ns, `[dry-run] would run ${p.module.file} on ${p.host} (${p.module.ram} GB)`);
       started += 1;
       continue;
     }
@@ -228,9 +237,9 @@ function startPlan(ns: NS, plan: Placement[], dryRun: boolean): number {
     ns.scp([p.module.file, ...SUPPORT_FILES], p.host, ns.getHostname());
     const pid = ns.exec(p.module.file, p.host, p.module.threads, ...p.module.args);
     if (pid === 0) {
-      ns.print(`could not start ${p.module.file} on ${p.host}`);
+      logger.log(ns, `could not start ${p.module.file} on ${p.host}`);
     } else {
-      ns.print(`started ${p.module.file} on ${p.host} (pid ${pid}, ${p.module.ram} GB)`);
+      logger.log(ns, `started ${p.module.file} on ${p.host} (pid ${pid}, ${p.module.ram} GB)`);
       started += 1;
     }
   }
@@ -268,15 +277,15 @@ function dashboard(ns: NS, core: any, plan: Placement[]): void {
   const running = plan.filter((p) => p.host && ns.scriptRunning(p.module.file, p.host));
   const blocked = plan.filter((p) => !p.host);
 
-  ns.print("");
-  ns.print(`money ${core.fmt(core.money(ns))} | hacking ${ns.getHackingLevel()} | bn ${core.bitnode(ns)}`);
-  ns.print(`running ${running.length} modules | blocked ${blocked.length}`);
+  logger.log(ns, "");
+  logger.log(ns, `money ${core.fmt(core.money(ns))} | hacking ${ns.getHackingLevel()} | bn ${core.bitnode(ns)}`);
+  logger.log(ns, `running ${running.length} modules | blocked ${blocked.length}`);
 
   for (const p of running) {
-    ns.print(`  ${pad(p.module.file, 18)} -> ${pad(p.host ?? "", 12)} ${p.module.ram} GB  ${p.module.note}`);
+    logger.log(ns, `  ${pad(p.module.file, 18)} -> ${pad(p.host ?? "", 12)} ${p.module.ram} GB  ${p.module.note}`);
   }
   for (const p of blocked) {
-    ns.print(`  ${pad(p.module.file, 18)}    skipped: ${p.reason}`);
+    logger.log(ns, `  ${pad(p.module.file, 18)}    skipped: ${p.reason}`);
   }
 
   const servers = core.rootedServers(ns) as string[];
@@ -286,8 +295,8 @@ function dashboard(ns: NS, core: any, plan: Placement[]): void {
     used += ns.getServerUsedRam(h);
     max += ns.getServerMaxRam(h);
   }
-  ns.print(`network RAM: ${used.toFixed(1)} / ${max.toFixed(1)} GB on ${servers.length} rooted servers`);
-  ns.print("");
+  logger.log(ns, `network RAM: ${used.toFixed(1)} / ${max.toFixed(1)} GB on ${servers.length} rooted servers`);
+  logger.log(ns, "");
 }
 
 /** Right-pad a string to width. */
