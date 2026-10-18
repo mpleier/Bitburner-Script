@@ -40,6 +40,14 @@ export async function main(ns: NS): Promise<void> {
     throw new Error(`log rotation failed: ${size} chars kept, limit is ${logger.LOG_LIMIT}`);
   }
 
+  // `--log mylog` must become a path ns.write() accepts.
+  ns.args.push("--log", "mylog");
+  if (logger.logFile(ns) !== "mylog.txt") {
+    throw new Error(`--log without an extension must become .txt, got ${logger.logFile(ns)}`);
+  }
+  ns.args.pop();
+  ns.args.pop();
+
   const last = logger.tail(ns, 3).split("\n").filter((l: string) => l.trim());
   if (last.length !== 3) throw new Error(`logger.tail() returned ${last.length} lines, expected 3`);
   if (!last[last.length - 1].includes("line 699")) throw new Error("logger.tail() must return the newest lines");
