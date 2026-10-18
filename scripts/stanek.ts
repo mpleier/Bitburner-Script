@@ -18,7 +18,8 @@
  *   run stanek.ts --dry-run --charge-every 5000
  */
 
-import type { NS } from "../defs.d";
+// Bitburner injects its API typings as a global declaration file, so `NS`
+// needs no import (globals.d.ts mirrors that for local `tsc` checks).
 
 const RAM_NEEDED = 17;
 

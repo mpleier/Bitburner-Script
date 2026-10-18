@@ -25,7 +25,10 @@
  *   run bladeburner.ts --dry-run --city auto
  */
 
-import type { NS, BladeburnerActionName } from "../defs.d";
+// Bitburner injects its API typings as a global declaration file, so `NS` and
+// `BladeburnerActionName` need no import (globals.d.ts mirrors that for local
+// `tsc` checks). Importing "../defs.d" is what triggers the game's
+// "Module not found: ../defs.d" error, because a .d file is not a script.
 import type { BladeburnerActionType, BladeburnerSkillName, CityName } from "./types";
 
 const RAM_NEEDED = 92;

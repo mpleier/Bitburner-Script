@@ -41,7 +41,9 @@ const BASE_COST = 1.6; // RamCostConstants.Base
 function loadRamTable() {
   const tablePath = path.join(process.cwd(), "ramtable.json");
   if (fs.existsSync(tablePath)) {
-    return JSON.parse(fs.readFileSync(tablePath, "utf8"));
+    const raw = JSON.parse(fs.readFileSync(tablePath, "utf8"));
+    if (raw && raw.best && raw.worst) return raw;
+    return { best: raw, worst: raw, namespaces: [] }; // legacy flat table
   }
   // Fallback: the flat leaf-name dump (UTF-16LE or UTF-8).
   const raw = fs.readFileSync(path.join(process.cwd(), "ramcost.txt"));
@@ -51,15 +53,21 @@ function loadRamTable() {
     const m = line.trim().match(/^([a-zA-Z_][a-zA-Z0-9_]*)=([0-9.]+)$/);
     if (m) table[m[1]] = Number(m[2]);
   }
-  return table;
+  return { best: table, worst: table, namespaces: [] };
 }
 
 const RAM = loadRamTable();
+const NAMESPACES = new Set(RAM.namespaces || []);
 
-function costOf(name) {
-  if (name in RAM) return RAM[name];
+/**
+ * Cost of `ns.<name>`.
+ * scenario = "worst" (no SF4 -> Singularity API costs 16x) or "best" (SF4.3+).
+ */
+function costOf(name, scenario) {
+  const table = scenario === "worst" ? RAM.worst : RAM.best;
+  if (name in table) return table[name];
   const leaf = name.split(".").pop();
-  return leaf in RAM ? RAM[leaf] : undefined;
+  return leaf in table ? table[leaf] : undefined;
 }
 /* -------------------------------------------------------------------------- */
 /* Source scanning                                                            */
@@ -72,12 +80,18 @@ function stripNonCode(src) {
     .replace(/(["'`])(?:\\.|(?!\1)[^\\])*\1/g, " ");
 }
 
-/** Every distinct `ns.foo` / `ns.foo.bar` reference in a file. */
+/** Every distinct `ns.foo` / `ns.foo.bar` *function* reference in a file. */
 function referencedFunctions(src) {
   const clean = stripNonCode(src);
   const names = new Set();
   for (const m of clean.matchAll(/\bns\.([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)/g)) {
-    names.add(m[1]);
+    const name = m[1];
+    const head = name.split(".")[0];
+    // ns.args and ns.enums are not RAM-charged API functions.
+    if (head === "args" || head === "enums") continue;
+    // A bare namespace reference (ns.corporation) costs nothing by itself.
+    if (NAMESPACES.has(name)) continue;
+    names.add(name);
   }
   return names;
 }
@@ -103,4 +117,104 @@ function dynamicUsage() {
   }
   return map;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Audit                                                                      */
+/* -------------------------------------------------------------------------- */
+const useDynamic = !process.argv.includes("--no-dynamic");
+const fixHint = process.argv.includes("--fix-hint");
+const dynamic = useDynamic ? dynamicUsage() : new Map();
+
+const rows = [];
+let problems = 0;
+
+for (const file of fs.readdirSync(SCRIPTS)) {
+  if (!file.endsWith(".ts") && !file.endsWith(".js")) continue;
+  const src = fs.readFileSync(path.join(SCRIPTS, file), "utf8");
+  const names = referencedFunctions(src);
+
+  const items = [];
+  const unknown = [];
+  for (const name of names) {
+    const best = costOf(name, "best");
+    const worst = costOf(name, "worst");
+    if (best === undefined && worst === undefined) {
+      unknown.push(name);
+      continue;
+    }
+    if (worst > 0) items.push({ name, best: best ?? 0, worst: worst ?? 0 });
+  }
+  items.sort((a, b) => b.worst - a.worst);
+
+  const totalBest = BASE_COST + items.reduce((s, i) => s + i.best, 0);
+  const totalWorst = BASE_COST + items.reduce((s, i) => s + i.worst, 0);
+  const declared = declaredBudget(src);
+  const dyn = dynamic.get(file);
+
+  rows.push({ file, executed: hasMain(src), distinct: items.length, totalBest, totalWorst, declared, dyn, items, unknown });
+  if (declared !== null && totalWorst > declared) problems++;
+}
+
+const bar = "=".repeat(86);
+
+console.log(bar);
+console.log("Static RAM audit - Bitburner charges each DISTINCT ns function once");
+console.log(`base cost ${BASE_COST} GB + sum of distinct ns function costs`);
+console.log(`"worst" = no SF4 (Singularity API costs 16x), "best" = SF4.3+ installed`);
+console.log(bar);
+
+for (const r of rows.sort((a, b) => b.totalWorst - a.totalWorst)) {
+  const declared = r.declared === null ? "n/a" : String(r.declared);
+  const headroom = r.declared === null ? null : r.declared - r.totalWorst;
+  const verdict =
+    r.declared === null
+      ? "no RAM_NEEDED declared"
+      : headroom >= 0
+        ? `headroom ${headroom.toFixed(1)} GB`
+        : `OVER BUDGET by ${(r.totalWorst - r.declared).toFixed(1)} GB`;
+
+  console.log(
+    `\n${r.file.padEnd(20)} worst ${r.totalWorst.toFixed(2).padStart(7)} GB  ` +
+    `best ${r.totalBest.toFixed(2).padStart(7)} GB  ` +
+    `declared ${declared.padStart(4)}  ${verdict}` +
+    (r.dyn !== undefined ? `  (mock dynamic: ${r.dyn.toFixed(2)} GB)` : "") +
+    (r.executed ? "" : "  [library file, never executed]")
+  );
+
+  for (const item of r.items.slice(0, 12)) {
+    const note = item.best === item.worst ? "" : `  (SF4.3+ -> ${item.best.toFixed(2)})`;
+    console.log(`      ${item.name.padEnd(34)} ${item.worst.toFixed(2)} GB${note}`);
+  }
+  if (r.items.length > 12) {
+    console.log(`      ... ${r.items.length - 12} more distinct functions ` +
+      `(${r.items.slice(12).reduce((s, i) => s + i.worst, 0).toFixed(2)} GB)`);
+  }
+  if (r.unknown.length) {
+    console.log(`      UNKNOWN API names (not in cost table): ${r.unknown.join(", ")}`);
+  }
+}
+
+console.log("\n" + bar);
+console.log(`Modules with a declared budget: ${rows.filter((r) => r.declared !== null).length}`);
+console.log(`Modules over their declared budget: ${problems}`);
+
+if (fixHint) {
+  console.log("\nSuggested RAM_NEEDED values (worst-case static cost rounded up, +1 GB margin):");
+  console.log("Note: if SF4.3+ is installed, the Singularity API is 16x cheaper and these");
+  console.log("values can be reduced to the 'best' column.");
+  for (const r of rows) {
+    if (r.declared === null) continue;
+    const suggested = Math.ceil(r.totalWorst) + 1;
+    const suggestedBest = Math.ceil(r.totalBest) + 1;
+    if (suggested !== r.declared) {
+      console.log(
+        `  ${r.file.padEnd(20)} RAM_NEEDED = ${String(r.declared).padStart(4)}  ->  ` +
+        `${String(suggested).padStart(4)} (worst)   ${String(suggestedBest).padStart(4)} (SF4.3+)`
+      );
+    }
+  }
+}
+
+console.log(bar);
+if (problems > 0) process.exitCode = 1;
 

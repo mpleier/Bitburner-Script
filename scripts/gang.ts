@@ -25,7 +25,8 @@
  *   run gang.ts --dry-run --ascend-at 2000 --interval 3000
  */
 
-import type { NS } from "../defs.d";
+// Bitburner injects its API typings as a global declaration file, so `NS`
+// needs no import (globals.d.ts mirrors that for local `tsc` checks).
 
 const RAM_NEEDED = 28;
 

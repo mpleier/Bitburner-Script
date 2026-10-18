@@ -11,7 +11,8 @@
  *   run hacknet.ts --max-nodes 20 --spend-hashes
  */
 
-import type { NS } from "../defs.d";
+// Bitburner injects its API typings as a global declaration file, so `NS`
+// needs no import (globals.d.ts mirrors that for local `tsc` checks).
 
 export async function main(ns: NS): Promise<void> {
   ns.clearLog();

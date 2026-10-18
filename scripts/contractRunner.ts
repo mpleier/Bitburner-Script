@@ -34,7 +34,8 @@
  * Type-only import: erased by the transpiler, so it is safe both in-game
  * (where `NS` is provided globally) and for local `tsc` checks.
  */
-import type { NS } from "../defs.d";
+// Bitburner injects its API typings as a global declaration file, so `NS`
+// needs no import (globals.d.ts mirrors that for local `tsc` checks).
 
 type Solvers = {
   solve: (type: string, data: unknown) => unknown;

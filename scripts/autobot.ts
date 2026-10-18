@@ -28,7 +28,8 @@
  *   run autobot.ts --kill                    stop every module the bot started
  */
 
-import type { NS } from "../defs.d";
+// Bitburner injects its API typings as a global declaration file, so `NS`
+// needs no import (globals.d.ts mirrors that for local `tsc` checks).
 
 const REPO = "mpleier/Bitburner-Script";
 const DEFAULT_REF = "main";
@@ -216,7 +217,7 @@ function startPlan(ns: NS, plan: Placement[], dryRun: boolean): number {
       continue;
     }
 
-    ns.scp([p.module.file, "core.ts"], p.host, ns.getHostname());
+    ns.scp([p.module.file, ...SUPPORT_FILES], p.host, ns.getHostname());
     const pid = ns.exec(p.module.file, p.host, p.module.threads, ...p.module.args);
     if (pid === 0) {
       ns.print(`could not start ${p.module.file} on ${p.host}`);

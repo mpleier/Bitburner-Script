@@ -1,4 +1,5 @@
-import type { NS } from "../defs.d";
+// Bitburner injects its API typings as a global declaration file, so `NS`
+// needs no import (globals.d.ts mirrors that for local `tsc` checks).
 
 /**
  * defs.d.ts declares most of its enum types without exporting them, so we

@@ -17,7 +17,8 @@
  *   run infiltration.ts --top 10 --rep-only
  */
 
-import type { NS } from "../defs.d";
+// Bitburner injects its API typings as a global declaration file, so `NS`
+// needs no import (globals.d.ts mirrors that for local `tsc` checks).
 
 const RAM_NEEDED = 18;
 

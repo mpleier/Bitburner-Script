@@ -47,6 +47,32 @@ over-commit a server.
 
 ---
 
+## Typing `ns`: why there is no `import { NS }` anywhere
+
+Bitburner ships its own API typings and the script editor injects them as a **global**
+declaration file (it strips every `export` keyword before handing them to Monaco). So in
+the game this is all you need:
+
+```ts
+export async function main(ns: NS) { /* ... */ }
+```
+
+Writing `import type { NS } from "../defs.d";` is the classic way to get "red squiggles"
+fixed in a local editor, but in the game it is a trap:
+
+* `defs.d.ts` is **not a script file** — the module resolver only accepts `.js`, `.jsx`,
+  `.ts`, `.tsx` and `.script`, and it refuses any path that escapes the script root.
+* `../defs.d` from `scripts/autobot.ts` resolves to `/defs.d.js`, which does not exist in
+  the game, so the script dies with **`Module not found: ../defs.d`** before `main()` is
+  ever called.
+
+Every module in this suite therefore relies on the global `NS` type. For local
+`npm run typecheck`, `globals.d.ts` mirrors the game's behaviour by re-exporting the
+typings as globals. `npm run imports` replays the game's transpile + module-resolution
+pipeline locally so a bad import is caught before it reaches the game.
+
+---
+
 ## Quick start
 
 ### 1. Create the installer (one time)
@@ -214,8 +240,9 @@ server is too small, so nothing fails silently.
 The repo ships a fake `ns` API so the whole suite can be exercised offline:
 
 ```bash
-npm install                 # only needs typescript
+npm install                 # typescript + the transpiler used by the import check
 npm run typecheck           # tsc --noEmit over every module
+npm run imports             # replay the game's module resolver on every script
 npm run selftest            # 36 known-answer contract checks
 npm run fuzz                # 8400 randomized differential checks
 npm run mock              # every module against a fake ns API
@@ -258,7 +285,9 @@ scripts/
 mocksuite.mjs         fake ns API, runs the whole suite offline
 selftest.mjs          known-answer solver tests
 fuzz.mjs              randomized differential tests
+importcheck.mjs       replays the game's module resolver to catch bad imports
 tsconfig.json         strict TS config (noEmit)
+globals.d.ts          makes NS global for local tsc, like the game's editor does
 defs.d.ts             the game's own API typings
 RamCostGenerator.ts   the game's RAM cost table
 c_*.ts                reference copies of official contract implementations
@@ -270,6 +299,7 @@ c_*.ts                reference copies of official contract implementations
 
 | Symptom | Fix |
 |---|---|
+| `Module not found: ../defs.d` | Do not import the typings. `NS` is a global type in Bitburner; see [Typing `ns`](#typing-ns-why-there-is-no-import--ns-anywhere). |
 | `FAILED to download ...` | Check the branch with `--ref main`. `raw.githubusercontent.com` allows CORS, so `wget` works; a proxy/firewall may not. |
 | `autobot.ts needs ~12 GB` | Run it on a server with at least 12 GB, or use `--only hacknet,share` until you have one. |
 | `Not enough RAM` in a module | That module's header lists the exact requirement. Root a bigger server or upgrade home RAM. |

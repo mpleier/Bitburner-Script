@@ -8,5 +8,5 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["scripts/**/*.ts", "defs.d.ts"]
+  "include": ["globals.d.ts", "scripts/**/*.ts", "defs.d.ts"]
 }
