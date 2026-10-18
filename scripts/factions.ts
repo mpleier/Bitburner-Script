@@ -27,25 +27,23 @@ import type { NS } from "../defs.d";
 
 const RAM_NEEDED = 34;
 
-/** Every faction name, so we can iterate without a "list my factions" API. */
-const ALL_FACTIONS: string[] = [
-  "BitRunners", "TheBlackHand", "NiteSec", "CyberSec", "Netburners", "TianDiHui",
-  "Aevum", "Chongqing", "Ishima", "NewTokyo", "Sector12", "Volhaven",
-  "SlumSnakes", "SpeakersForTheDead", "TheDarkArmy", "TheSyndicate", "Silhouette",
-  "Tetrads", "ECorp", "MegaCorp", "BachmanAndAssociates", "BladeIndustries",
-  "NWO", "ClarkeIncorporated", "OmniTekIncorporated", "FourSigma",
-  "KuaiGongInternational", "FulcrumSecretTechnologies", "Illuminati", "Daedalus",
-  "TheCovenant", "Bladeburners", "ChurchOfTheMachineGod", "ShadowsOfAnarchy",
-];
+/** Every faction name, taken from the enum so the spelling is always right. */
+function allFactions(ns: NS) {
+  return Object.values(ns.enums.FactionName);
+}
+
+type Faction = ReturnType<typeof allFactions>[number];
 
 export async function main(ns: NS): Promise<void> {
   ns.clearLog();
   ns.disableLog("ALL");
 
   const args = ns.args.map(String);
+  const core = await ns.dynamicImport("./core.ts");
   const dryRun = args.includes("--dry-run");
   const installAugs = args.includes("--install-augs");
   const interval = Number(flagOr(args, "--interval", 1000));
+  const loops = core.maxLoops(args);
   const host = ns.getHostname();
 
   if (ns.getServerMaxRam(host) < RAM_NEEDED) {
@@ -53,10 +51,10 @@ export async function main(ns: NS): Promise<void> {
     return;
   }
 
-  const joined = new Set<string>();
+  const joined = new Set<Faction>();
   ns.print("=== faction module ===");
 
-  while (true) {
+  for (let loop = 0; loop < loops; ++loop) {
     // 1. Join every faction that invited us.
     for (const faction of ns.singularity.checkFactionInvitations()) {
       if (dryRun) {
@@ -68,6 +66,11 @@ export async function main(ns: NS): Promise<void> {
         ns.print(`joined ${faction}`);
         joined.add(faction);
       }
+    }
+
+    // 2. Track any faction we already have reputation with.
+    for (const faction of allFactions(ns)) {
+      if (ns.singularity.getFactionRep(faction) > 0) joined.add(faction);
     }
 
     // 2. Work for the faction with the best favor gain.
@@ -99,8 +102,8 @@ export async function main(ns: NS): Promise<void> {
 }
 
 /** The faction we belong to that gives the most favor per cycle. */
-function bestFactionToWork(ns: NS, joined: Set<string>): { faction: string; gain: number } | null {
-  let best: { faction: string; gain: number } | null = null;
+function bestFactionToWork(ns: NS, joined: Set<Faction>) {
+  let best: { faction: Faction; gain: number } | null = null;
   for (const faction of joined) {
     const gain = ns.singularity.getFactionFavorGain(faction);
     if (!best || gain > best.gain) best = { faction, gain };
@@ -109,9 +112,9 @@ function bestFactionToWork(ns: NS, joined: Set<string>): { faction: string; gain
 }
 
 /** Pick the work type that matches our best stat. */
-function pickWorkType(ns: NS, faction: string): string {
+function pickWorkType(ns: NS, faction: Faction) {
   const types = ns.singularity.getFactionWorkTypes(faction);
-  if (types.length === 0) return "hacking";
+  if (types.length === 0) return ns.enums.FactionWorkType.hacking;
 
   const s = ns.getPlayer().skills;
   const score: Record<string, number> = {
@@ -126,7 +129,7 @@ function pickWorkType(ns: NS, faction: string): string {
 }
 
 /** Give favor away when a faction still has augmentations we want. */
-function donate(ns: NS, joined: Set<string>, dryRun: boolean): void {
+function donate(ns: NS, joined: Set<Faction>, dryRun: boolean): void {
   const favorNeeded = ns.getFavorToDonate();
   if (favorNeeded <= 0) return;
 
@@ -154,7 +157,7 @@ function donate(ns: NS, joined: Set<string>, dryRun: boolean): void {
 
 
 /** Purchase every affordable augmentation whose prereqs and rep are met. */
-function buyAugmentations(ns: NS, joined: Set<string>, dryRun: boolean): void {
+function buyAugmentations(ns: NS, joined: Set<Faction>, dryRun: boolean): void {
   const cash = ns.getPlayer().money;
   const owned = new Set(ns.singularity.getOwnedAugmentations(true));
 

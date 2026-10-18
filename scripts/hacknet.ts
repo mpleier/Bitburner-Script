@@ -22,12 +22,14 @@ export async function main(ns: NS): Promise<void> {
   const interval = Number(flagOr(args, "--interval", 2000));
   const maxNodes = Number(flagOr(args, "--max-nodes", 200));
   const spendHashes = !args.includes("--no-hashes");
+  const core = await ns.dynamicImport("./core.ts");
+  const loops = core.maxLoops(args);
 
   ns.print("=== hacknet module ===");
 
-  while (true) {
+  for (let loop = 0; loop < loops; ++loop) {
     const cash = ns.getPlayer().money;
-    const nodes = ns.hacknet.numNodes();
+    let nodes = ns.hacknet.numNodes();
     const cap = Math.min(ns.hacknet.maxNumNodes(), maxNodes);
 
     // 1. Buy nodes while the next one is cheap relative to our bankroll.
@@ -43,6 +45,7 @@ export async function main(ns: NS): Promise<void> {
     //    small slice of the bankroll and the node is not maxed.
     for (let i = 0; i < nodes; ++i) {
       const stats = ns.hacknet.getNodeStats(i);
+      if (!stats) continue;
 
       const levelCost = ns.hacknet.getLevelUpgradeCost(i, 1);
       if (levelCost > 0 && levelCost < cash / 20 && stats.level < 1000) {
@@ -55,7 +58,7 @@ export async function main(ns: NS): Promise<void> {
       }
 
       const coreCost = ns.hacknet.getCoreUpgradeCost(i, 1);
-      if (coreCost > 0 && coreCost < cash / 30 && stats.core < 16) {
+      if (coreCost > 0 && coreCost < cash / 30 && stats.cores < 16) {
         if (!dryRun) ns.hacknet.upgradeCore(i, 1);
       }
 

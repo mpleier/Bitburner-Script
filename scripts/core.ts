@@ -32,13 +32,13 @@ export const PROGRAMS: string[] = [
   "Formulas.exe",
 ];
 
-/** Port openers: ns function name <-> program file name. */
-export const PORT_OPENERS: Array<{ file: string; fn: string }> = [
-  { file: "BruteSSH.exe", fn: "brutessh" },
-  { file: "FTPCrack.exe", fn: "ftpcrack" },
-  { file: "relaySMTP.exe", fn: "relaysmtp" },
-  { file: "HTTPWorm.exe", fn: "httpworm" },
-  { file: "SQLInject.exe", fn: "sqlinject" },
+/** Port openers: program file name <-> the ns call that opens that port. */
+export const PORT_OPENERS: Array<{ file: string; open: (ns: NS, host: string) => boolean }> = [
+  { file: "BruteSSH.exe", open: (ns, host) => ns.brutessh(host) },
+  { file: "FTPCrack.exe", open: (ns, host) => ns.ftpcrack(host) },
+  { file: "relaySMTP.exe", open: (ns, host) => ns.relaysmtp(host) },
+  { file: "HTTPWorm.exe", open: (ns, host) => ns.httpworm(host) },
+  { file: "SQLInject.exe", open: (ns, host) => ns.sqlinject(host) },
 ];
 
 /** `--name value` -> value, or undefined when the flag is absent. */
@@ -115,15 +115,9 @@ export function rootServer(ns: NS, host: string, dryRun = false): boolean {
 
   for (const p of PORT_OPENERS) {
     if (!owned.has(p.file)) continue;
-    const open = ns[asKey(p.fn)](host);
-    if (!open) return false;
+    if (!p.open(ns, host)) return false;
   }
   return ns.nuke(host);
-}
-
-/** Cast a known API name to the NS index type without losing safety elsewhere. */
-function asKey(s: string): keyof NS {
-  return s as keyof NS;
 }
 
 /** Servers we could root right now (level + programs), not yet rooted. */
@@ -190,4 +184,96 @@ export function fmtTime(ms: number): string {
   if (s < 60) return s.toFixed(1) + "s";
   if (s < 3600) return (s / 60).toFixed(1) + "m";
   return (s / 3600).toFixed(2) + "h";
+}
+
+/**
+ * `--loops N` -> stop the main loop after N iterations.
+ * Without it the modules run forever (Infinity), which is what you want in
+ * game; the test harness passes --loops 3 so every module terminates.
+ */
+export function maxLoops(args: string[]): number {
+  const v = flag(args, "--loops");
+  if (v === undefined) return Infinity;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : Infinity;
+}
+
+/** `--name value` -> Number(value), or `fallback` when absent/unparseable. */
+export function numOr(args: string[], name: string, fallback: number): number {
+  const v = flag(args, name);
+  if (v === undefined) return fallback;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/** Do we own source file `n`, at least `level` deep? */
+export function hasSF(ns: NS, n: number, level = 1): boolean {
+  const info = tryCall(() => ns.getResetInfo(), null as any);
+  if (!info || !info.ownedSF) return false;
+  return (info.ownedSF.get(n) ?? 0) >= level;
+}
+
+/** Bitnode number, 1-based. */
+export function bitnode(ns: NS): number {
+  const info = tryCall(() => ns.getResetInfo(), null as any);
+  return info && info.currentNode ? info.currentNode : 1;
+}
+
+/** Player karma. Gangs need karma <= -54000 outside BitNode 2. */
+export function karma(ns: NS): number {
+  const p = tryCall(() => ns.getPlayer(), null as any);
+  return p && typeof p.karma === "number" ? p.karma : 0;
+}
+
+/**
+ * Is this subsystem reachable in the current BitNode / source-file set?
+ *
+ * Mapping taken from the official BitNode list
+ * (src/Documentation/doc/en/advanced/bitnodes.md):
+ *   Gangs          BitNode 2   or Source-File 2
+ *   Corporation    BitNode 3   or Source-File 3 (level 3 unlocks the full API)
+ *   Bladeburner    BitNode 6/7 or Source-File 6/7
+ *   Stanek's Gift  BitNode 13  or Source-File 13
+ *   Sleeves        BitNode 10  or Source-File 10
+ *   Darknet        BitNode 15  or Source-File 15
+ *   Stock market   BitNode 8   or Source-File 8
+ *   IPvGO          BitNode 14  or Source-File 14
+ *   Singularity    BitNode 4   or Source-File 4
+ */
+export function subsystemAvailable(ns: NS, name: string): boolean {
+  const p = tryCall(() => ns.getPlayer(), null as any);
+  if (!p) return false;
+  // The real property is `bitNodeOptions`; the old name is kept as a fallback.
+  const flags: Record<string, boolean> = p.bitNodeOptions ?? p.bitnodeOptions ?? {};
+  const bn = bitnode(ns);
+
+  switch (name) {
+    case "gang":
+      return !flags.disableGang && (bn === 2 || hasSF(ns, 2));
+    case "corporation":
+      return !flags.disableCorporation && (bn === 3 || hasSF(ns, 3));
+    case "bladeburner":
+      return (
+        !flags.disableBladeburner &&
+        (bn === 6 || bn === 7 || hasSF(ns, 6) || hasSF(ns, 7))
+      );
+    case "stanek":
+      return bn === 13 || hasSF(ns, 13);
+    case "sleeves":
+      return !flags.disableSleeveExpAndAugmentation && (bn === 10 || hasSF(ns, 10));
+    case "darknet":
+      return bn === 15 || bn === 10 || hasSF(ns, 15);
+    case "stock":
+      return !flags.disable4SData && (bn === 8 || hasSF(ns, 8));
+    case "go":
+      return bn === 14 || hasSF(ns, 14);
+    case "hacknet":
+      return !flags.disableHacknetServer;
+    case "singularity":
+      return bn === 4 || hasSF(ns, 4);
+    case "infiltration":
+      return true;
+    default:
+      return true;
+  }
 }

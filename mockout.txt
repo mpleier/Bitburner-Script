@@ -1,0 +1,558 @@
+﻿node : (node:43792) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/mplei/OneDrive/Documents/GitHub/Bitburner-Script/scripts/core.ts 
+is not specified and it doesn't parse as CommonJS.
+At line:1 char:1
++ node mocksuite.mjs --loops 2 --verbose 2>&1 | Out-File -Encoding utf8 ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ((node:43792) [M...se as CommonJS.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\Users\mplei\OneDrive\Documents\GitHub\Bitburner-Script\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+==============================================================================
+Bitburner suite dry-run  (bitnode 10, loops 2)
+==============================================================================
+
+--- core.ts  [ok]  44 ms
+
+--- hacking.ts  [ok]  36 ms
+    === hacking module ===
+    [dry-run] would obtain NUKE.exe
+    [dry-run] would obtain BruteSSH.exe
+    [dry-run] would obtain FTPCrack.exe
+    [dry-run] would obtain relaySMTP.exe
+    [dry-run] would obtain HTTPWorm.exe
+    [dry-run] would obtain SQLInject.exe
+    [dry-run] would obtain DeepscanV1.exe
+    [dry-run] would obtain DeepscanV2.exe
+    [dry-run] would obtain AutoLink.exe
+    [dry-run] would obtain ServerProfiler.exe
+    [dry-run] would obtain Formulas.exe
+    [dry-run] would upgrade home RAM for 1.00M
+    [dry-run] would upgrade home cores for 500000
+    [dry-run] n0001: money 2.00M/2.00M, sec 1/1, 1024 threads
+    [dry-run] would obtain NUKE.exe
+    [dry-run] would obtain BruteSSH.exe
+    [dry-run] would obtain FTPCrack.exe
+    [dry-run] would obtain relaySMTP.exe
+    [dry-run] would obtain HTTPWorm.exe
+    [dry-run] would obtain SQLInject.exe
+    [dry-run] would obtain DeepscanV1.exe
+    [dry-run] would obtain DeepscanV2.exe
+    [dry-run] would obtain AutoLink.exe
+    [dry-run] would obtain ServerProfiler.exe
+    [dry-run] would obtain Formulas.exe
+    [dry-run] would upgrade home RAM for 1.00M
+    [dry-run] would upgrade home cores for 500000
+    [dry-run] n0001: money 2.00M/2.00M, sec 1/1, 1024 threads
+
+--- hacknet.ts  [ok]  30 ms
+    === hacknet module ===
+    spent 10 hash on Sell for Money (level 2)
+    nodes: 200/200, hash: 450/3000
+    spent 10 hash on Sell for Money (level 2)
+    nodes: 200/200, hash: 450/3000
+
+--- stock.ts  [ok]  3 ms
+    === stock module ===
+    tick: 5 symbols, 5 trades, bankroll 1.00B
+    tick: 5 symbols, 5 trades, bankroll 1.00B
+
+--- factions.ts  [ok]  27 ms
+    === faction module ===
+    [dry-run] would join CyberSec
+    [dry-run] would join BitRunners
+    [dry-run] would join The Black Hand
+    [dry-run] would join Shadows of Anarchy
+    [dry-run] would work hacking for CyberSec
+    [dry-run] would buy Aegis from Fulcrum Secret Technologies for 1.50M
+    [dry-run] would buy Aegis from Church of the Machine God for 1.50M
+    [dry-run] would join CyberSec
+    [dry-run] would join BitRunners
+    [dry-run] would join The Black Hand
+    [dry-run] would join Shadows of Anarchy
+    [dry-run] would work hacking for CyberSec
+    [dry-run] would buy Aegis from Fulcrum Secret Technologies for 1.50M
+    [dry-run] would buy Aegis from Church of the Machine God for 1.50M
+
+--- jobs.ts  [ok]  31 ms
+    === jobs module (25 companies) ===
+    [dry-run] would work at ECorp (score 1005000, favor gain 5.00)
+    [dry-run] would work at ECorp (score 1005000, favor gain 5.00)
+
+--- crime.ts  [ok]  31 ms
+    === crime module ===
+    [dry-run] best crime: Shoplift -> 6.00K/s (chance 0.6)
+    [dry-run] best crime: Shoplift -> 6.00K/s (chance 0.6)
+
+--- gang.ts  [ok]  5 ms
+    === gang module ===
+    [dry-run] would recruit Member 7 (respect 220.0 needed)
+    [dry-run] would recruit Member 8 (respect 220.0 needed)
+    [dry-run] would recruit Member 9 (respect 220.0 needed)
+    [dry-run] would recruit Member 10 (respect 220.0 needed)
+    [dry-run] would recruit Member 11 (respect 220.0 needed)
+    [dry-run] would recruit Member 12 (respect 220.0 needed)
+    [dry-run] would buy M-16 for Rex (1.40K)
+    [dry-run] would buy M-16 for Storm (1.40K)
+    [dry-run] would buy M-16 for Nova (1.40K)
+    [dry-run] would buy M-16 for Cipher (1.40K)
+    [dry-run] would buy M-16 for Vex (1.40K)
+    [dry-run] would buy M-16 for Jett (1.40K)
+    [dry-run] would set territory warfare to true
+    members 6 | respect 1200.0 | territory 35.0% | income 12.00K/cycle | wanted 250.0
+    [dry-run] would recruit Member 7 (respect 220.0 needed)
+    [dry-run] would recruit Member 8 (respect 220.0 needed)
+    [dry-run] would recruit Member 9 (respect 220.0 needed)
+    [dry-run] would recruit Member 10 (respect 220.0 needed)
+    [dry-run] would recruit Member 11 (respect 220.0 needed)
+    [dry-run] would recruit Member 12 (respect 220.0 needed)
+    [dry-run] would buy M-16 for Rex (1.40K)
+    [dry-run] would buy M-16 for Storm (1.40K)
+    [dry-run] would buy M-16 for Nova (1.40K)
+    [dry-run] would buy M-16 for Cipher (1.40K)
+    [dry-run] would buy M-16 for Vex (1.40K)
+    [dry-run] would buy M-16 for Jett (1.40K)
+    [dry-run] would set territory warfare to true
+    members 6 | respect 1200.0 | territory 35.0% | income 12.00K/cycle | wanted 250.0
+
+--- bladeburner.ts  [ok]  3 ms
+    === bladeburner module ===
+    [dry-run] would move from Aevum to Chongqing (chaos 0.70)
+    [dry-run] would start General "Training" (score 0.014)
+    rank 150 | stamina 60.0/100 | skill points 8
+    [dry-run] would move from Aevum to Chongqing (chaos 0.70)
+    [dry-run] would start General "Training" (score 0.014)
+    rank 150 | stamina 60.0/100 | skill points 8
+
+--- corporation.ts  [ok]  4 ms
+    === corporation module ===
+    [dry-run] would open Robotics (cost 500.00K)
+    [dry-run] would open Mining (cost 500.00K)
+    [dry-run] would open Refinery (cost 500.00K)
+    [dry-run] would open Agriculture (cost 500.00K)
+    [dry-run] would open Water Utilities (cost 500.00K)
+    [dry-run] would open Fishing (cost 500.00K)
+    [dry-run] would open Restaurant (cost 500.00K)
+    [dry-run] would open Healthcare (cost 500.00K)
+    [dry-run] would open Real Estate (cost 500.00K)
+    [dry-run] would grow Software/Aevum office for 20.00K
+    [dry-run] would hire 2 in Software/Aevum
+    [dry-run] Software/Aevum: Management -> 0 employees
+    [dry-run] Software/Aevum: Research and Development -> 1 employees
+    [dry-run] Software/Aevum: Engineering -> 7 employees
+    [dry-run] Software/Aevum: Operations -> 1 employees
+    [dry-run] would expand Software to Chongqing
+    [dry-run] would expand Software to Ishima
+    [dry-run] would expand Software to New Tokyo
+    [dry-run] would expand Software to Sector-12
+    [dry-run] would grow Food/Aevum office for 20.00K
+    [dry-run] would hire 2 in Food/Aevum
+    [dry-run] Food/Aevum: Management -> 0 employees
+    [dry-run] Food/Aevum: Research and Development -> 1 employees
+    [dry-run] Food/Aevum: Engineering -> 7 employees
+    [dry-run] Food/Aevum: Operations -> 1 employees
+    [dry-run] would expand Food to Chongqing
+    [dry-run] would expand Food to Ishima
+    [dry-run] would expand Food to New Tokyo
+    [dry-run] would expand Food to Sector-12
+    [dry-run] would buy a warehouse for Software in Aevum
+    [dry-run] would buy a warehouse for Software in Chito City
+    [dry-run] would buy a warehouse for Software in Singularity
+    [dry-run] would buy a warehouse for Food in Aevum
+    [dry-run] would buy a warehouse for Food in Chito City
+    [dry-run] would buy a warehouse for Food in Singularity
+    [dry-run] would design Software Product 1 (250.00M design, 250.00M marketing)
+    [dry-run] would design Food Product 1 (250.00M design, 250.00M marketing)
+    [dry-run] would unlock Research Division for 1.00M
+    [dry-run] would unlock Divisions for 1.00M
+    [dry-run] would unlock Rebalance Divisions for 1.00M
+    [dry-run] would unlock Export for 1.00M
+    [dry-run] would level Advertising (0 -> 1) for 100.00K
+    [dry-run] would level Manufacturing (0 -> 1) for 100.00K
+    [dry-run] would level Research (0 -> 1) for 100.00K
+    [dry-run] would level Distribution (0 -> 1) for 100.00K
+    [dry-run] would accept investment offer: 100.00M for 1000 shares
+    [dry-run] would go public
+    Nova Industries | funds 5.00B | revenue 1.00M/s | expenses 200.00K/s | divisions 2 | valuation 2.00B
+    [dry-run] would open Robotics (cost 500.00K)
+    [dry-run] would open Mining (cost 500.00K)
+    [dry-run] would open Refinery (cost 500.00K)
+    [dry-run] would open Agriculture (cost 500.00K)
+    [dry-run] would open Water Utilities (cost 500.00K)
+    [dry-run] would open Fishing (cost 500.00K)
+    [dry-run] would open Restaurant (cost 500.00K)
+    [dry-run] would open Healthcare (cost 500.00K)
+    [dry-run] would open Real Estate (cost 500.00K)
+    [dry-run] would grow Software/Aevum office for 20.00K
+    [dry-run] would hire 2 in Software/Aevum
+    [dry-run] Software/Aevum: Management -> 0 employees
+    [dry-run] Software/Aevum: Research and Development -> 1 employees
+    [dry-run] Software/Aevum: Engineering -> 7 employees
+    [dry-run] Software/Aevum: Operations -> 1 employees
+    [dry-run] would expand Software to Chongqing
+    [dry-run] would expand Software to Ishima
+    [dry-run] would expand Software to New Tokyo
+    [dry-run] would expand Software to Sector-12
+    [dry-run] would grow Food/Aevum office for 20.00K
+    [dry-run] would hire 2 in Food/Aevum
+    [dry-run] Food/Aevum: Management -> 0 employees
+    [dry-run] Food/Aevum: Research and Development -> 1 employees
+    [dry-run] Food/Aevum: Engineering -> 7 employees
+    [dry-run] Food/Aevum: Operations -> 1 employees
+    [dry-run] would expand Food to Chongqing
+    [dry-run] would expand Food to Ishima
+    [dry-run] would expand Food to New Tokyo
+    [dry-run] would expand Food to Sector-12
+    [dry-run] would buy a warehouse for Software in Aevum
+    [dry-run] would buy a warehouse for Software in Chito City
+    [dry-run] would buy a warehouse for Software in Singularity
+    [dry-run] would buy a warehouse for Food in Aevum
+    [dry-run] would buy a warehouse for Food in Chito City
+    [dry-run] would buy a warehouse for Food in Singularity
+    [dry-run] would design Software Product 1 (250.00M design, 250.00M marketing)
+    [dry-run] would design Food Product 1 (250.00M design, 250.00M marketing)
+    [dry-run] would unlock Research Division for 1.00M
+    [dry-run] would unlock Divisions for 1.00M
+    [dry-run] would unlock Rebalance Divisions for 1.00M
+    [dry-run] would unlock Export for 1.00M
+    [dry-run] would level Advertising (0 -> 1) for 100.00K
+    [dry-run] would level Manufacturing (0 -> 1) for 100.00K
+    [dry-run] would level Research (0 -> 1) for 100.00K
+    [dry-run] would level Distribution (0 -> 1) for 100.00K
+    [dry-run] would accept investment offer: 100.00M for 1000 shares
+    [dry-run] would go public
+    Nova Industries | funds 5.00B | revenue 1.00M/s | expenses 200.00K/s | divisions 2 | valuation 2.00B
+
+--- stanek.ts  [ok]  34 ms
+    === stanek module ===
+    accepted the gift
+    [dry-run] would place fragment 1 (hacknet_node_money) at 0,0 rot 0
+    [dry-run] would place fragment 2 (hacknet_node_upgrade_cost) at 2,0 rot 0
+    [dry-run] would place fragment 3 (cool_down) at 3,0 rot 0
+    [dry-run] would place fragment 4 (charge_time) at 4,1 rot 0
+    [dry-run] would place fragment 5 (hacknet_node_max_level) at 5,3 rot 0
+    placed 0 fragments | total power 0
+    accepted the gift
+    [dry-run] would place fragment 1 (hacknet_node_money) at 0,0 rot 0
+    [dry-run] would place fragment 2 (hacknet_node_upgrade_cost) at 2,0 rot 0
+    [dry-run] would place fragment 3 (cool_down) at 3,0 rot 0
+    [dry-run] would place fragment 4 (charge_time) at 4,1 rot 0
+    [dry-run] would place fragment 5 (hacknet_node_max_level) at 5,3 rot 0
+    placed 0 fragments | total power 0
+
+--- go.ts  [ok]  2 ms
+    === go module ===
+    [dry-run] best move 2,4 (score 9.00)
+    [dry-run] best move 2,4 (score 9.00)
+
+--- infiltration.ts  [ok]  28 ms
+    === infiltration module ===
+    --- best infiltration targets (5 locations) ---
+    1. Sigma Pharmaceuticals (Aevum) | value 1.00M | difficulty 3 | rep 1000 | cash 5.00K | SoA 100 | doable
+    2. Crush Fitness Gym (Aevum) | value 1.00M | difficulty 3 | rep 1000 | cash 5.00K | SoA 100 | doable
+    3. Information Services Company (Chito City) | value 1.00M | difficulty 3 | rep 1000 | cash 5.00K | SoA 100 | doable
+    4. Kultek Stores (Singularity) | value 1.00M | difficulty 3 | rep 1000 | cash 5.00K | SoA 100 | doable
+    5. Tianan Systems (Neo Tokyo) | value 1.00M | difficulty 3 | rep 1000 | cash 5.00K | SoA 100 | doable
+    --- best infiltration targets (5 locations) ---
+    1. Sigma Pharmaceuticals (Aevum) | value 1.00M | difficulty 3 | rep 1000 | cash 5.00K | SoA 100 | doable
+    2. Crush Fitness Gym (Aevum) | value 1.00M | difficulty 3 | rep 1000 | cash 5.00K | SoA 100 | doable
+    3. Information Services Company (Chito City) | value 1.00M | difficulty 3 | rep 1000 | cash 5.00K | SoA 100 | doable
+    4. Kultek Stores (Singularity) | value 1.00M | difficulty 3 | rep 1000 | cash 5.00K | SoA 100 | doable
+    5. Tianan Systems (Neo Tokyo) | value 1.00M | difficulty 3 | rep 1000 | cash 5.00K | SoA 100 | doable
+
+--- darknet.ts  [ok]  31 ms
+    === darknet module ===
+    2 connected servers | instability auth x1.00 (10.0% timeout) | stasis links 0/5
+    [dry-run] 198.211.40.12: model 12345, password 8 chars (alphanumeric), hint "starts with the word password", 0 candidates
+    [dry-run] 203.0.113.77: model 67890, password 6 chars (numeric), hint "six digits", 0 candidates
+    2 connected servers | instability auth x1.00 (10.0% timeout) | stasis links 0/5
+    [dry-run] 198.211.40.12: model 12345, password 8 chars (alphanumeric), hint "starts with the word password", 0 candidates
+    [dry-run] 203.0.113.77: model 67890, password 6 chars (numeric), hint "six digits", 0 candidates
+
+--- sleeves.ts  [ok]  32 ms
+    === sleeves module (3 sleeves) ===
+    [dry-run] sleeve 0: shock recovery (shock 100)
+    [dry-run] sleeve 1: shock recovery (shock 70)
+    [dry-run] sleeve 2: shock recovery (shock 40)
+    sleeve 0: sync 100 shock 100 | hack 200 str 80 cha 60 | task idle | bonus 0 cycles
+    sleeve 1: sync 80 shock 70 | hack 220 str 90 cha 70 | task idle | bonus 100000 cycles
+    sleeve 2: sync 60 shock 40 | hack 240 str 100 cha 80 | task idle | bonus 200000 cycles
+    [dry-run] sleeve 0: shock recovery (shock 100)
+    [dry-run] sleeve 1: shock recovery (shock 70)
+    [dry-run] sleeve 2: shock recovery (shock 40)
+    sleeve 0: sync 100 shock 100 | hack 200 str 80 cha 60 | task idle | bonus 0 cycles
+    sleeve 1: sync 80 shock 70 | hack 220 str 90 cha 70 | task idle | bonus 100000 cycles
+    sleeve 2: sync 60 shock 40 | hack 240 str 100 cha 80 | task idle | bonus 200000 cycles
+
+--- share.ts  [ok (loop budget reached)]  1 ms
+
+--- contractRunner.ts  [ok]  20 ms
+    Round 1: 8 servers reachable
+    [dry] home/prime.cct (Find Largest Prime Factor) -> 6857
+    [dry] home/subarray.cct (Subarray with Maximum Sum) -> 5
+    [dry] home/ways.cct (Total Ways to Sum) -> 76
+    [dry] home/ways2.cct (Total Ways to Sum II) -> 47
+    [dry] home/spiral.cct (Spiralize Matrix) -> [1,2,3,6,9,8,7,4,5]
+    [dry] home/jump.cct (Array Jumping Game) -> 1
+    [dry] home/jump2.cct (Array Jumping Game II) -> 3
+    [dry] home/intervals.cct (Merge Overlapping Intervals) -> [[1,6],[8,10],[15,18]]
+    [dry] home/ip.cct (Generate IP Addresses) -> []
+    [dry] home/stock1.cct (Algorithmic Stock Trader I) -> 11
+    [dry] home/stock4.cct (Algorithmic Stock Trader IV) -> 13
+    [dry] home/triangle.cct (Minimum Path Sum in a Triangle) -> 8
+    [dry] home/grid1.cct (Unique Paths in a Grid I) -> 10
+    [dry] home/grid2.cct (Unique Paths in a Grid II) -> 2
+    [dry] home/shortpath.cct (Shortest Path in a Grid) -> DDRRR
+    [dry] home/paren.cct (Sanitize Parentheses in Expression) -> ["unbalanced"]
+    [dry] home/hamming.cct (HammingCodes: Integer to Encoded Binary) -> 00111100
+    [dry] home/graph.cct (Proper 2-Coloring of a Graph) -> [0,1,0,1]
+    [dry] home/rle.cct (Compression I: RLE Compression) -> 3a3b4c
+    [dry] home/caesar.cct (Encryption I: Caesar Cipher) -> EBIIL TLOIA
+    [dry] home/vigenere.cct (Encryption II: Vigen├¿re Cipher) -> LNVIHOREXCES
+    [dry] home/sqrt.cct (Square Root) -> 3513641829n
+    [dry] home/primes.cct (Total Number of Primes) -> 21
+    [dry] home/rect.cct (Largest Rectangle in a Matrix) -> [[0,3],[1,3]]
+    [dry] n0006/prime.cct (Find Largest Prime Factor) -> 6857
+    [dry] n0006/subarray.cct (Subarray with Maximum Sum) -> 5
+    [dry] n0006/ways.cct (Total Ways to Sum) -> 76
+    [dry] n0006/ways2.cct (Total Ways to Sum II) -> 47
+    [dry] n0006/spiral.cct (Spiralize Matrix) -> [1,2,3,6,9,8,7,4,5]
+    [dry] n0006/jump.cct (Array Jumping Game) -> 1
+    [dry] n0006/jump2.cct (Array Jumping Game II) -> 3
+    [dry] n0006/intervals.cct (Merge Overlapping Intervals) -> [[1,6],[8,10],[15,18]]
+    [dry] n0006/ip.cct (Generate IP Addresses) -> []
+    [dry] n0006/stock1.cct (Algorithmic Stock Trader I) -> 11
+    [dry] n0006/stock4.cct (Algorithmic Stock Trader IV) -> 13
+    [dry] n0006/triangle.cct (Minimum Path Sum in a Triangle) -> 8
+    [dry] n0006/grid1.cct (Unique Paths in a Grid I) -> 10
+    [dry] n0006/grid2.cct (Unique Paths in a Grid II) -> 2
+    [dry] n0006/shortpath.cct (Shortest Path in a Grid) -> DDRRR
+    [dry] n0006/paren.cct (Sanitize Parentheses in Expression) -> ["unbalanced"]
+    [dry] n0006/hamming.cct (HammingCodes: Integer to Encoded Binary) -> 00111100
+    [dry] n0006/graph.cct (Proper 2-Coloring of a Graph) -> [0,1,0,1]
+    [dry] n0006/rle.cct (Compression I: RLE Compression) -> 3a3b4c
+    [dry] n0006/caesar.cct (Encryption I: Caesar Cipher) -> EBIIL TLOIA
+    [dry] n0006/vigenere.cct (Encryption II: Vigen├¿re Cipher) -> LNVIHOREXCES
+    [dry] n0006/sqrt.cct (Square Root) -> 3513641829n
+    [dry] n0006/primes.cct (Total Number of Primes) -> 21
+    [dry] n0006/rect.cct (Largest Rectangle in a Matrix) -> [[0,3],[1,3]]
+    [dry] n0001/prime.cct (Find Largest Prime Factor) -> 6857
+    [dry] n0001/subarray.cct (Subarray with Maximum Sum) -> 5
+    [dry] n0001/ways.cct (Total Ways to Sum) -> 76
+    [dry] n0001/ways2.cct (Total Ways to Sum II) -> 47
+    [dry] n0001/spiral.cct (Spiralize Matrix) -> [1,2,3,6,9,8,7,4,5]
+    [dry] n0001/jump.cct (Array Jumping Game) -> 1
+    [dry] n0001/jump2.cct (Array Jumping Game II) -> 3
+    [dry] n0001/intervals.cct (Merge Overlapping Intervals) -> [[1,6],[8,10],[15,18]]
+    [dry] n0001/ip.cct (Generate IP Addresses) -> []
+    [dry] n0001/stock1.cct (Algorithmic Stock Trader I) -> 11
+    [dry] n0001/stock4.cct (Algorithmic Stock Trader IV) -> 13
+    [dry] n0001/triangle.cct (Minimum Path Sum in a Triangle) -> 8
+    [dry] n0001/grid1.cct (Unique Paths in a Grid I) -> 10
+    [dry] n0001/grid2.cct (Unique Paths in a Grid II) -> 2
+    [dry] n0001/shortpath.cct (Shortest Path in a Grid) -> DDRRR
+    [dry] n0001/paren.cct (Sanitize Parentheses in Expression) -> ["unbalanced"]
+    [dry] n0001/hamming.cct (HammingCodes: Integer to Encoded Binary) -> 00111100
+    [dry] n0001/graph.cct (Proper 2-Coloring of a Graph) -> [0,1,0,1]
+    [dry] n0001/rle.cct (Compression I: RLE Compression) -> 3a3b4c
+    [dry] n0001/caesar.cct (Encryption I: Caesar Cipher) -> EBIIL TLOIA
+    [dry] n0001/vigenere.cct (Encryption II: Vigen├¿re Cipher) -> LNVIHOREXCES
+    [dry] n0001/sqrt.cct (Square Root) -> 3513641829n
+    [dry] n0001/primes.cct (Total Number of Primes) -> 21
+    [dry] n0001/rect.cct (Largest Rectangle in a Matrix) -> [[0,3],[1,3]]
+    [dry] n0002/prime.cct (Find Largest Prime Factor) -> 6857
+    [dry] n0002/subarray.cct (Subarray with Maximum Sum) -> 5
+    [dry] n0002/ways.cct (Total Ways to Sum) -> 76
+    [dry] n0002/ways2.cct (Total Ways to Sum II) -> 47
+    [dry] n0002/spiral.cct (Spiralize Matrix) -> [1,2,3,6,9,8,7,4,5]
+    [dry] n0002/jump.cct (Array Jumping Game) -> 1
+    [dry] n0002/jump2.cct (Array Jumping Game II) -> 3
+    [dry] n0002/intervals.cct (Merge Overlapping Intervals) -> [[1,6],[8,10],[15,18]]
+    [dry] n0002/ip.cct (Generate IP Addresses) -> []
+    [dry] n0002/stock1.cct (Algorithmic Stock Trader I) -> 11
+    [dry] n0002/stock4.cct (Algorithmic Stock Trader IV) -> 13
+    [dry] n0002/triangle.cct (Minimum Path Sum in a Triangle) -> 8
+    [dry] n0002/grid1.cct (Unique Paths in a Grid I) -> 10
+    [dry] n0002/grid2.cct (Unique Paths in a Grid II) -> 2
+    [dry] n0002/shortpath.cct (Shortest Path in a Grid) -> DDRRR
+    [dry] n0002/paren.cct (Sanitize Parentheses in Expression) -> ["unbalanced"]
+    [dry] n0002/hamming.cct (HammingCodes: Integer to Encoded Binary) -> 00111100
+    [dry] n0002/graph.cct (Proper 2-Coloring of a Graph) -> [0,1,0,1]
+    [dry] n0002/rle.cct (Compression I: RLE Compression) -> 3a3b4c
+    [dry] n0002/caesar.cct (Encryption I: Caesar Cipher) -> EBIIL TLOIA
+    [dry] n0002/vigenere.cct (Encryption II: Vigen├¿re Cipher) -> LNVIHOREXCES
+    [dry] n0002/sqrt.cct (Square Root) -> 3513641829n
+    [dry] n0002/primes.cct (Total Number of Primes) -> 21
+    [dry] n0002/rect.cct (Largest Rectangle in a Matrix) -> [[0,3],[1,3]]
+    [dry] n0003/prime.cct (Find Largest Prime Factor) -> 6857
+    [dry] n0003/subarray.cct (Subarray with Maximum Sum) -> 5
+    [dry] n0003/ways.cct (Total Ways to Sum) -> 76
+    [dry] n0003/ways2.cct (Total Ways to Sum II) -> 47
+    [dry] n0003/spiral.cct (Spiralize Matrix) -> [1,2,3,6,9,8,7,4,5]
+    [dry] n0003/jump.cct (Array Jumping Game) -> 1
+    [dry] n0003/jump2.cct (Array Jumping Game II) -> 3
+    [dry] n0003/intervals.cct (Merge Overlapping Intervals) -> [[1,6],[8,10],[15,18]]
+    [dry] n0003/ip.cct (Generate IP Addresses) -> []
+    [dry] n0003/stock1.cct (Algorithmic Stock Trader I) -> 11
+    [dry] n0003/stock4.cct (Algorithmic Stock Trader IV) -> 13
+    [dry] n0003/triangle.cct (Minimum Path Sum in a Triangle) -> 8
+    [dry] n0003/grid1.cct (Unique Paths in a Grid I) -> 10
+    [dry] n0003/grid2.cct (Unique Paths in a Grid II) -> 2
+    [dry] n0003/shortpath.cct (Shortest Path in a Grid) -> DDRRR
+    [dry] n0003/paren.cct (Sanitize Parentheses in Expression) -> ["unbalanced"]
+    [dry] n0003/hamming.cct (HammingCodes: Integer to Encoded Binary) -> 00111100
+    [dry] n0003/graph.cct (Proper 2-Coloring of a Graph) -> [0,1,0,1]
+    [dry] n0003/rle.cct (Compression I: RLE Compression) -> 3a3b4c
+    [dry] n0003/caesar.cct (Encryption I: Caesar Cipher) -> EBIIL TLOIA
+    [dry] n0003/vigenere.cct (Encryption II: Vigen├¿re Cipher) -> LNVIHOREXCES
+    [dry] n0003/sqrt.cct (Square Root) -> 3513641829n
+    [dry] n0003/primes.cct (Total Number of Primes) -> 21
+    [dry] n0003/rect.cct (Largest Rectangle in a Matrix) -> [[0,3],[1,3]]
+    [dry] n0011/prime.cct (Find Largest Prime Factor) -> 6857
+    [dry] n0011/subarray.cct (Subarray with Maximum Sum) -> 5
+    [dry] n0011/ways.cct (Total Ways to Sum) -> 76
+    [dry] n0011/ways2.cct (Total Ways to Sum II) -> 47
+    [dry] n0011/spiral.cct (Spiralize Matrix) -> [1,2,3,6,9,8,7,4,5]
+    [dry] n0011/jump.cct (Array Jumping Game) -> 1
+    [dry] n0011/jump2.cct (Array Jumping Game II) -> 3
+    [dry] n0011/intervals.cct (Merge Overlapping Intervals) -> [[1,6],[8,10],[15,18]]
+    [dry] n0011/ip.cct (Generate IP Addresses) -> []
+    [dry] n0011/stock1.cct (Algorithmic Stock Trader I) -> 11
+    [dry] n0011/stock4.cct (Algorithmic Stock Trader IV) -> 13
+    [dry] n0011/triangle.cct (Minimum Path Sum in a Triangle) -> 8
+    [dry] n0011/grid1.cct (Unique Paths in a Grid I) -> 10
+    [dry] n0011/grid2.cct (Unique Paths in a Grid II) -> 2
+    [dry] n0011/shortpath.cct (Shortest Path in a Grid) -> DDRRR
+    [dry] n0011/paren.cct (Sanitize Parentheses in Expression) -> ["unbalanced"]
+    [dry] n0011/hamming.cct (HammingCodes: Integer to Encoded Binary) -> 00111100
+    [dry] n0011/graph.cct (Proper 2-Coloring of a Graph) -> [0,1,0,1]
+    [dry] n0011/rle.cct (Compression I: RLE Compression) -> 3a3b4c
+    [dry] n0011/caesar.cct (Encryption I: Caesar Cipher) -> EBIIL TLOIA
+    [dry] n0011/vigenere.cct (Encryption II: Vigen├¿re Cipher) -> LNVIHOREXCES
+    [dry] n0011/sqrt.cct (Square Root) -> 3513641829n
+    [dry] n0011/primes.cct (Total Number of Primes) -> 21
+    [dry] n0011/rect.cct (Largest Rectangle in a Matrix) -> [[0,3],[1,3]]
+    [dry] n0018/prime.cct (Find Largest Prime Factor) -> 6857
+    [dry] n0018/subarray.cct (Subarray with Maximum Sum) -> 5
+    [dry] n0018/ways.cct (Total Ways to Sum) -> 76
+    [dry] n0018/ways2.cct (Total Ways to Sum II) -> 47
+    [dry] n0018/spiral.cct (Spiralize Matrix) -> [1,2,3,6,9,8,7,4,5]
+    [dry] n0018/jump.cct (Array Jumping Game) -> 1
+    [dry] n0018/jump2.cct (Array Jumping Game II) -> 3
+    [dry] n0018/intervals.cct (Merge Overlapping Intervals) -> [[1,6],[8,10],[15,18]]
+    [dry] n0018/ip.cct (Generate IP Addresses) -> []
+    [dry] n0018/stock1.cct (Algorithmic Stock Trader I) -> 11
+    [dry] n0018/stock4.cct (Algorithmic Stock Trader IV) -> 13
+    [dry] n0018/triangle.cct (Minimum Path Sum in a Triangle) -> 8
+    [dry] n0018/grid1.cct (Unique Paths in a Grid I) -> 10
+    [dry] n0018/grid2.cct (Unique Paths in a Grid II) -> 2
+    [dry] n0018/shortpath.cct (Shortest Path in a Grid) -> DDRRR
+    [dry] n0018/paren.cct (Sanitize Parentheses in Expression) -> ["unbalanced"]
+    [dry] n0018/hamming.cct (HammingCodes: Integer to Encoded Binary) -> 00111100
+    [dry] n0018/graph.cct (Proper 2-Coloring of a Graph) -> [0,1,0,1]
+    [dry] n0018/rle.cct (Compression I: RLE Compression) -> 3a3b4c
+    [dry] n0018/caesar.cct (Encryption I: Caesar Cipher) -> EBIIL TLOIA
+    [dry] n0018/vigenere.cct (Encryption II: Vigen├¿re Cipher) -> LNVIHOREXCES
+    [dry] n0018/sqrt.cct (Square Root) -> 3513641829n
+    [dry] n0018/primes.cct (Total Number of Primes) -> 21
+    [dry] n0018/rect.cct (Largest Rectangle in a Matrix) -> [[0,3],[1,3]]
+    [dry] n0024/prime.cct (Find Largest Prime Factor) -> 6857
+    [dry] n0024/subarray.cct (Subarray with Maximum Sum) -> 5
+    [dry] n0024/ways.cct (Total Ways to Sum) -> 76
+    [dry] n0024/ways2.cct (Total Ways to Sum II) -> 47
+    [dry] n0024/spiral.cct (Spiralize Matrix) -> [1,2,3,6,9,8,7,4,5]
+    [dry] n0024/jump.cct (Array Jumping Game) -> 1
+    [dry] n0024/jump2.cct (Array Jumping Game II) -> 3
+    [dry] n0024/intervals.cct (Merge Overlapping Intervals) -> [[1,6],[8,10],[15,18]]
+    [dry] n0024/ip.cct (Generate IP Addresses) -> []
+    [dry] n0024/stock1.cct (Algorithmic Stock Trader I) -> 11
+    [dry] n0024/stock4.cct (Algorithmic Stock Trader IV) -> 13
+    [dry] n0024/triangle.cct (Minimum Path Sum in a Triangle) -> 8
+    [dry] n0024/grid1.cct (Unique Paths in a Grid I) -> 10
+    [dry] n0024/grid2.cct (Unique Paths in a Grid II) -> 2
+    [dry] n0024/shortpath.cct (Shortest Path in a Grid) -> DDRRR
+    [dry] n0024/paren.cct (Sanitize Parentheses in Expression) -> ["unbalanced"]
+    [dry] n0024/hamming.cct (HammingCodes: Integer to Encoded Binary) -> 00111100
+    [dry] n0024/graph.cct (Proper 2-Coloring of a Graph) -> [0,1,0,1]
+    [dry] n0024/rle.cct (Compression I: RLE Compression) -> 3a3b4c
+    [dry] n0024/caesar.cct (Encryption I: Caesar Cipher) -> EBIIL TLOIA
+    [dry] n0024/vigenere.cct (Encryption II: Vigen├¿re Cipher) -> LNVIHOREXCES
+    [dry] n0024/sqrt.cct (Square Root) -> 3513641829n
+    [dry] n0024/primes.cct (Total Number of Primes) -> 21
+    [dry] n0024/rect.cct (Largest Rectangle in a Matrix) -> [[0,3],[1,3]]
+    [tprint] Round 1: 192 contracts | 0 solved | 0 failed | 0 unsupported | 0 not rootable
+
+--- autobot.ts  [ok]  10 ms
+    === autobot ===
+    bitnode 10 | money 1.00B | hacking 250
+    [dry-run] would run hacking.ts on home (28 GB)
+    [dry-run] would run hacknet.ts on home (8 GB)
+    [dry-run] would run contractRunner.ts on home (28 GB)
+    [dry-run] would run factions.ts on home (34 GB)
+    [dry-run] would run jobs.ts on home (10 GB)
+    [dry-run] would run crime.ts on home (38 GB)
+    [dry-run] would run gang.ts on home (28 GB)
+    [dry-run] would run bladeburner.ts on home (92 GB)
+    [dry-run] would run corporation.ts on home (421 GB)
+    [dry-run] would run stock.ts on home (36 GB)
+    [dry-run] would run stanek.ts on home (17 GB)
+    [dry-run] would run sleeves.ts on home (45 GB)
+    [dry-run] would run go.ts on home (50 GB)
+    [dry-run] would run infiltration.ts on home (18 GB)
+    [dry-run] would run darknet.ts on home (26 GB)
+    [dry-run] would run share.ts on home (4 GB)
+    
+    money 1.00B | hacking 250 | bn 10
+    running 0 modules | blocked 0
+    network RAM: 0.0 / 1040.0 GB on 3 rooted servers
+    
+    [dry-run] would run hacking.ts on home (28 GB)
+    [dry-run] would run hacknet.ts on home (8 GB)
+    [dry-run] would run contractRunner.ts on home (28 GB)
+    [dry-run] would run factions.ts on home (34 GB)
+    [dry-run] would run jobs.ts on home (10 GB)
+    [dry-run] would run crime.ts on home (38 GB)
+    [dry-run] would run gang.ts on home (28 GB)
+    [dry-run] would run bladeburner.ts on home (92 GB)
+    [dry-run] would run corporation.ts on home (421 GB)
+    [dry-run] would run stock.ts on home (36 GB)
+    [dry-run] would run stanek.ts on home (17 GB)
+    [dry-run] would run sleeves.ts on home (45 GB)
+    [dry-run] would run go.ts on home (50 GB)
+    [dry-run] would run infiltration.ts on home (18 GB)
+    [dry-run] would run darknet.ts on home (26 GB)
+    [dry-run] would run share.ts on home (4 GB)
+    
+    money 1.00B | hacking 250 | bn 10
+    running 0 modules | blocked 0
+    network RAM: 0.0 / 1040.0 GB on 3 rooted servers
+    
+
+--- install.js  [ok]  2 ms
+    downloaded core.ts (main)
+    downloaded types.ts (main)
+    downloaded contracts.ts (main)
+    downloaded autobot.ts (main)
+    downloaded hacking.ts (main)
+    downloaded hacknet.ts (main)
+    downloaded contractRunner.ts (main)
+    downloaded factions.ts (main)
+    downloaded jobs.ts (main)
+    downloaded crime.ts (main)
+    downloaded gang.ts (main)
+    downloaded bladeburner.ts (main)
+    downloaded corporation.ts (main)
+    downloaded stock.ts (main)
+    downloaded stanek.ts (main)
+    downloaded sleeves.ts (main)
+    downloaded go.ts (main)
+    downloaded infiltration.ts (main)
+    downloaded darknet.ts (main)
+    downloaded share.ts (main)
+    [tprint] Started autobot.ts on home (pid 1) args: --dry-run --loops 2
+    [tprint] Watch it with: tail autobot.ts
+
+==============================================================================
+19/19 modules ran cleanly.
+==============================================================================

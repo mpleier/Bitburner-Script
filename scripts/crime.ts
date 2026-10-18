@@ -24,11 +24,10 @@ import type { NS } from "../defs.d";
 
 const RAM_NEEDED = 38;
 
-const CRIMES: string[] = [
-  "Shoplift", "Rob Store", "Mug", "Larceny", "Deal Drugs", "Bond Forgery",
-  "Traffick Arms", "Homicide", "Grand Theft Auto", "Kidnap", "Assassination", "Heist",
-];
-
+/** All crimes, taken from the enum so the names are always valid. */
+function allCrimes(ns: NS) {
+  return Object.values(ns.enums.CrimeType);
+}
 /** Shadow faction chain, in prerequisite order. */
 const SHADOW_AUGS: string[] = [
   "Shadow Blade", "Shadow Network", "Shadow Avatar", "Shadow Bond",
@@ -40,8 +39,10 @@ export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
 
   const args = ns.args.map(String);
+  const core = await ns.dynamicImport("./core.ts");
   const dryRun = args.includes("--dry-run");
   const focus = args.includes("--focus") ? args[args.indexOf("--focus") + 1] : "money";
+  const loops = core.maxLoops(args);
   const host = ns.getHostname();
 
   if (ns.getServerMaxRam(host) < RAM_NEEDED) {
@@ -51,7 +52,7 @@ export async function main(ns: NS): Promise<void> {
 
   ns.print("=== crime module ===");
 
-  while (true) {
+  for (let loop = 0; loop < loops; ++loop) {
     const best = bestCrime(ns, focus);
 
     if (best) {
@@ -69,13 +70,13 @@ export async function main(ns: NS): Promise<void> {
 }
 
 /** Rank crimes by expected value per second. */
-function bestCrime(ns: NS, focus: string): { crime: string; perSec: number; chance: number } | null {
-  let best: { crime: string; perSec: number; chance: number } | null = null;
+function bestCrime(ns: NS, focus: string) {
+  let best: { crime: ReturnType<typeof allCrimes>[number]; perSec: number; chance: number } | null = null;
 
-  for (const crime of CRIMES) {
-    const chance = ns.singularity.getCrimeChance(crime as any);
-    const money = ns.singularity.getCrimeMoney(crime as any);
-    const perSec = chance * money;
+  for (const crime of allCrimes(ns)) {
+    const stats = ns.singularity.getCrimeStats(crime);
+    const chance = ns.singularity.getCrimeChance(crime);
+    const perSec = (chance * stats.money) / (stats.time / 1000);
     if (!best || perSec > best.perSec) best = { crime, perSec, chance };
   }
 
@@ -86,7 +87,13 @@ function bestCrime(ns: NS, focus: string): { crime: string; perSec: number; chan
 
 /** Build the Shadow faction: earn rep in the four feeder factions, join, buy the chain. */
 function shadowChain(ns: NS, dryRun: boolean): void {
-  const feeders = ["SlumSnakes", "SpeakersForTheDead", "TheDarkArmy", "TheSyndicate"];
+  const shadow = ns.enums.FactionName.ShadowsOfAnarchy;
+  const feeders = [
+    ns.enums.FactionName.SlumSnakes,
+    ns.enums.FactionName.SpeakersForTheDead,
+    ns.enums.FactionName.TheDarkArmy,
+    ns.enums.FactionName.TheSyndicate,
+  ];
   const cash = ns.getPlayer().money;
 
   for (const faction of feeders) {
@@ -102,7 +109,7 @@ function shadowChain(ns: NS, dryRun: boolean): void {
     const prereq = ns.singularity.getAugmentationPrereq(aug);
     if (prereq.some((p) => !owned.has(p))) continue;
 
-    const rep = ns.singularity.getFactionRep("Shadow");
+    const rep = ns.singularity.getFactionRep(shadow);
     if (rep < ns.singularity.getAugmentationRepReq(aug)) continue;
 
     const price = ns.singularity.getAugmentationPrice(aug);
@@ -112,7 +119,7 @@ function shadowChain(ns: NS, dryRun: boolean): void {
       ns.print(`[dry-run] would buy ${aug} for ${fmt(price)}`);
       continue;
     }
-    if (ns.singularity.purchaseAugmentation("Shadow", aug)) {
+    if (ns.singularity.purchaseAugmentation(shadow, aug)) {
       ns.print(`bought ${aug} for ${fmt(price)}`);
       owned.add(aug);
     }

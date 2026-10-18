@@ -1,99 +1,142 @@
 /**
  * jobs.ts
  * ============================================================================
- * Job automation: apply for every job we qualify for, keep the highest paying
- * one, upgrade it, and run a share script on every server with spare RAM so
- * we keep earning while we are working.
+ * Career automation:
+ *   - walks every company and every job field
+ *   - applies to the highest-ranked position each field will offer
+ *   - keeps the company with the best favor gain as the current job
+ *   - quits a job when a better-ranked one is available
  *
- * RAM cost (GB): base 1.6 + listJobs 0.5 + applyJob 2 + getJobInformation 2
- *   + isBusy 0.5 + getPlayer 0.5 + 5x getJob* 0.05 + upgradeJob 1
- *   + getJobUpgradeCost 1 + startProgram 1.6 + exec 1 + scan 0.2
- *   + getServerMaxRam 0.05 + getServerUsedRam 0.05 + hasRootAccess 0.05
- *   + scp 0.05 + getStat 0.05
- *   => ~14 GB
+ * RAM cost (GB):
+ *   base 1.6 | applyToCompany 1 | workForCompany 3 | getCompanyRep 1
+ *   getCompanyFavor 1 | getCompanyFavorGain 1 | getCompanyPositions 1
+ *   getCompanyPositionInfo 1 | quitJob 1 | isBusy 0.5 | getPlayer 0.5
+ *   + getHostname 0.05 | getServerMaxRam 0.05
+ *   => ~10 GB
  *
  * Usage
  *   run jobs.ts
- *   run jobs.ts --no-share --dry-run
+ *   run jobs.ts --dry-run --companies 10
  */
 
 import type { NS } from "../defs.d";
+
+const RAM_NEEDED = 10;
+
+/** Types pulled from the enums so every name passed to the API is valid. */
+type Company = ReturnType<typeof companies>[number];
+type Field = ReturnType<typeof fields>[number];
+
+function companies(ns: NS) {
+  return Object.values(ns.enums.CompanyName);
+}
+
+function fields(ns: NS) {
+  return Object.values(ns.enums.JobField);
+}
+
+/**
+ * CompanyPositionInfo has no explicit rank, so we rank positions by the
+ * reputation they demand: a higher requirement means a higher position.
+ */
+function positionScore(ns: NS, company: Company, position: string): number {
+  const info = ns.singularity.getCompanyPositionInfo(company, position as any);
+  return info.requiredReputation * 1000 + info.salary;
+}
 
 export async function main(ns: NS): Promise<void> {
   ns.clearLog();
   ns.disableLog("ALL");
 
   const args = ns.args.map(String);
+  const core = await ns.dynamicImport("./core.ts");
   const dryRun = args.includes("--dry-run");
-  const share = !args.includes("--no-share");
-  const interval = Number(flagOr(args, "--interval", 2000));
+  const loops = core.maxLoops(args);
+  const limit = core.numOr(args, "--companies", 25);
+  const host = ns.getHostname();
 
-  ns.print("=== jobs module ===");
-
-  while (true) {
-    const jobs = ns.singularity.listJobs();
-    const cash = ns.getPlayer().money;
-
-    // Apply for anything we are not already employed at.
-    for (const job of jobs) {
-      if (jobs.some((j) => j === job)) {
-        // listJobs returns current employment; skip if already employed there
-      }
-      const info = ns.singularity.getJobInformation(job);
-      if (info.requiredStat > ns.getStat(info.stat)) {
-        ns.print(`not qualified for ${job} (needs ${info.requiredStat} ${info.stat})`);
-        continue;
-      }
-      if (cash < info.startingSalary) continue;
-
-      if (dryRun) {
-        ns.print(`[dry-run] would apply for ${job} (${fmt(info.startingSalary)}/cycle)`);
-        continue;
-      }
-      if (ns.singularity.applyJob(job)) ns.print(`applied for ${job}`);
-    }
-
-    // Upgrade the current job when it is cheap.
-    for (const job of jobs) {
-      const cost = ns.singularity.getJobUpgradeCost(job);
-      if (cost > 0 && cost < cash / 10) {
-        if (!dryRun) ns.singularity.upgradeJob(job);
-      }
-    }
-
-    // Keep a share script running everywhere with spare RAM.
-    if (share) shareEverywhere(ns, dryRun);
-
-    await ns.sleep(interval);
+  if (ns.getServerMaxRam(host) < RAM_NEEDED) {
+    ns.tprint(`jobs.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
+    return;
   }
-}
 
-/** scp share.ts to every rooted server with RAM and run it there. */
-function shareEverywhere(ns: NS, dryRun: boolean): void {
-  ns.scp(["share.ts"], "home");
+  const allCompanies = companies(ns).slice(0, limit);
+  const allFields = fields(ns);
+  ns.print(`=== jobs module (${allCompanies.length} companies) ===`);
 
-  for (const host of ns.scan("home")) {
-    if (!ns.hasRootAccess(host)) continue;
-    const free = ns.getServerMaxRam(host) - ns.getServerUsedRam(host);
-    if (free < 4) continue;
+  for (let loop = 0; loop < loops; ++loop) {
+    const jobs = ns.getPlayer().jobs;
 
-    const threads = Math.floor(free / 1);
+    // 1. Score every company we can actually get hired by.
+    let best: { company: Company; score: number; gain: number } | null = null;
+
+    for (const company of allCompanies) {
+      const gain = ns.singularity.getCompanyFavorGain(company);
+      if (gain <= 0) continue;
+      const score = bestScoreFor(ns, company, allFields);
+      if (score <= 0) continue;
+      if (!best || gain > best.gain) best = { company, score, gain };
+    }
+
+    if (!best) {
+      ns.print("No company will hire us yet - raise stats or join a faction first.");
+      break;
+    }
+
+    // 2. Leave a current job if the new one is better.
+    for (const company of allCompanies) {
+      const position = jobs[company];
+      if (!position) continue;
+      if (positionScore(ns, company, position) < best.score) {
+        if (dryRun) ns.print(`[dry-run] would quit ${company}`);
+        else ns.singularity.quitJob(company);
+      }
+    }
+
+    // 3. Apply for the best position and work there.
     if (dryRun) {
-      ns.print(`[dry-run] would run share.ts on ${host} with ${threads} threads`);
-      continue;
+      ns.print(
+        `[dry-run] would work at ${best.company} (score ${best.score}, ` +
+          `favor gain ${best.gain.toFixed(2)})`,
+      );
+    } else {
+      const position = applyBest(ns, best.company, allFields);
+      if (position) {
+        ns.print(`working at ${best.company} as ${position}`);
+        if (!ns.singularity.isBusy()) ns.singularity.workForCompany(best.company);
+      }
     }
-    if (ns.isRunning("share.ts", host)) continue;
-    ns.exec("share.ts", host, threads);
+
+    await ns.sleep(5000);
   }
 }
 
-function flagOr(args: string[], name: string, fallback: number): number {
-  const i = args.indexOf(name);
-  return i >= 0 && i + 1 < args.length ? Number(args[i + 1]) : fallback;
+/** The highest position score a company is willing to offer us right now. */
+function bestScoreFor(ns: NS, company: Company, allFields: Field[]): number {
+  let score = 0;
+  for (const field of allFields) {
+    const position = ns.singularity.applyToCompany(company, field);
+    if (!position) continue;
+    const s = positionScore(ns, company, position);
+    if (s > score) score = s;
+  }
+  return score;
 }
 
-function fmt(n: number): string {
-  if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
-  if (n >= 1e3) return (n / 1e3).toFixed(2) + "K";
-  return n.toFixed(2);
+/** Apply across every field and keep the best offer. */
+function applyBest(ns: NS, company: Company, allFields: Field[]): string | null {
+  let bestPosition: string | null = null;
+  let bestScore = 0;
+
+  for (const field of allFields) {
+    const position = ns.singularity.applyToCompany(company, field);
+    if (!position) continue;
+    const s = positionScore(ns, company, position);
+    if (s > bestScore) {
+      bestScore = s;
+      bestPosition = position;
+    }
+  }
+
+  return bestPosition;
 }

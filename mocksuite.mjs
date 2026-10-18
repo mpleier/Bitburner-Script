@@ -1,0 +1,1232 @@
+/**
+ * mocksuite.mjs
+ * ============================================================================
+ * Offline dry-run harness for the Bitburner automation suite.
+ *
+ * Bitburner scripts only run inside the game, so this file builds a fake `ns`
+ * object that implements every API the suite touches, then runs each module's
+ * main() with `--dry-run --loops N`. That catches:
+ *   - typos in API names (a missing method throws, and we report it)
+ *   - logic errors in the decision-making code
+ *   - crashes on edge cases (empty lists, zero RAM, missing subsystems)
+ *
+ * Usage
+ *   node mocksuite.mjs                  # run every module
+ *   node mocksuite.mjs gang stock       # run only these modules
+ *   node mocksuite.mjs --loops 5        # more iterations
+ *   node mocksuite.mjs --bitnode 10     # pretend a different bitnode
+ *   node mocksuite.mjs --sf 13 3        # pretend we own Source-File 13 level 3
+ *   node mocksuite.mjs --no-sf          # pretend we own no source files
+ *   node mocksuite.mjs --verbose        # print every log line
+ */
+
+import path from "node:path";
+import fs from "node:fs";
+import { pathToFileURL } from "node:url";
+
+/** Enum tables are filled in by parseEnums() before any module runs. */
+let ENUMS = {};
+
+
+const SCRIPTS = path.join(process.cwd(), "scripts");
+
+/** Modules to exercise, in the order the autobot would schedule them. */
+const MODULES = [
+  "core.ts",
+  "hacking.ts",
+  "hacknet.ts",
+  "stock.ts",
+  "factions.ts",
+  "jobs.ts",
+  "crime.ts",
+  "gang.ts",
+  "bladeburner.ts",
+  "corporation.ts",
+  "stanek.ts",
+  "go.ts",
+  "infiltration.ts",
+  "darknet.ts",
+  "sleeves.ts",
+  "share.ts",
+  "contractRunner.ts",
+  "autobot.ts",
+  "install.js",
+];
+
+/** Programs the fake player owns in the mock world. */
+const PROGRAMS = new Set([
+  "NUKE.exe", "BruteSSH.exe", "FTPCrack.exe", "relaySMTP.exe",
+  "HTTPWorm.exe", "SQLInject.exe", "DeepscanV1.exe", "DeepscanV2.exe",
+  "AutoLink.exe", "ServerProfiler.exe", "Formulas.exe",
+]);
+
+/* -------------------------------------------------------------------------- */
+/* Stanek's Gift                                                              */
+/* -------------------------------------------------------------------------- */
+
+/** Tetromino shapes copied from src/CotMG/data/Shapes.ts */
+const SHAPES = {
+  O: [[true, true], [true, true]],
+  I: [[true, true, true, true]],
+  L: [[false, false, true], [true, true, true]],
+  J: [[true, false, false], [true, true, true]],
+  S: [[false, true, true], [true, true, false]],
+  Z: [[true, true, false], [false, true, true]],
+  T: [[true, true, true], [false, true, false]],
+};
+
+/** FragmentTypeEnum values: HackingSpeed 3 ... Booster 18 */
+const FRAG = {
+  HackingSpeed: 3, HackingMoney: 4, HackingGrow: 5, Hacking: 6,
+  Strength: 7, Defense: 8, Dexterity: 9, Agility: 10, Charisma: 11,
+  HacknetMoney: 12, HacknetCost: 13, Rep: 14, WorkMoney: 15,
+  Crime: 16, Bladeburner: 17, Booster: 18,
+};
+
+/** The 24 real fragments from src/CotMG/Fragment.ts */
+const STANEK_FRAGMENTS = [
+  { id: 0, shape: SHAPES.S, type: FRAG.Hacking, power: 1, limit: 1, effect: "Hacking" },
+  { id: 1, shape: SHAPES.Z, type: FRAG.Hacking, power: 1, limit: 1, effect: "Hacking" },
+  { id: 5, shape: SHAPES.T, type: FRAG.HackingSpeed, power: 1.3, limit: 1, effect: "Hacking Speed" },
+  { id: 6, shape: SHAPES.I, type: FRAG.HackingMoney, power: 2, limit: 1, effect: "Hacking Money" },
+  { id: 7, shape: SHAPES.J, type: FRAG.HackingGrow, power: 0.5, limit: 1, effect: "Hacking Growth" },
+  { id: 10, shape: SHAPES.T, type: FRAG.Strength, power: 2, limit: 1, effect: "Strength" },
+  { id: 12, shape: SHAPES.L, type: FRAG.Defense, power: 2, limit: 1, effect: "Defense" },
+  { id: 14, shape: SHAPES.L, type: FRAG.Dexterity, power: 2, limit: 1, effect: "Dexterity" },
+  { id: 16, shape: SHAPES.S, type: FRAG.Agility, power: 2, limit: 1, effect: "Agility" },
+  { id: 18, shape: SHAPES.S, type: FRAG.Charisma, power: 3, limit: 1, effect: "Charisma" },
+  { id: 20, shape: SHAPES.I, type: FRAG.HacknetMoney, power: 1, limit: 1, effect: "Hacknet Node Money" },
+  { id: 21, shape: SHAPES.O, type: FRAG.HacknetCost, power: 2, limit: 1, effect: "Hacknet Node Cost" },
+  { id: 25, shape: SHAPES.J, type: FRAG.Rep, power: 0.5, limit: 1, effect: "Faction Reputation" },
+  { id: 27, shape: SHAPES.J, type: FRAG.WorkMoney, power: 10, limit: 1, effect: "Company Work Money" },
+  { id: 28, shape: SHAPES.L, type: FRAG.Crime, power: 2, limit: 1, effect: "Crime Success Rate" },
+  { id: 30, shape: SHAPES.S, type: FRAG.Bladeburner, power: 0.4, limit: 1, effect: "Bladeburner Action Success Rate" },
+  { id: 100, shape: [[false, true, true], [true, true, false], [false, true, false]], type: FRAG.Booster, power: 1.1, limit: 99, effect: "Booster" },
+  { id: 101, shape: [[true, true, true, true], [true, false, false, false]], type: FRAG.Booster, power: 1.1, limit: 99, effect: "Booster" },
+  { id: 102, shape: [[false, true, true, true], [true, true, false, false]], type: FRAG.Booster, power: 1.1, limit: 99, effect: "Booster" },
+  { id: 103, shape: [[true, true, true, false], [false, false, true, true]], type: FRAG.Booster, power: 1.1, limit: 99, effect: "Booster" },
+  { id: 104, shape: [[false, true, true], [false, true, false], [true, true, false]], type: FRAG.Booster, power: 1.1, limit: 99, effect: "Booster" },
+  { id: 105, shape: [[false, false, true], [false, true, true], [true, true, false]], type: FRAG.Booster, power: 1.1, limit: 99, effect: "Booster" },
+  { id: 106, shape: [[true, false, false], [true, true, true], [true, false, false]], type: FRAG.Booster, power: 1.1, limit: 99, effect: "Booster" },
+  { id: 107, shape: [[false, true, false], [true, true, true], [false, true, false]], type: FRAG.Booster, power: 1.1, limit: 99, effect: "Booster" },
+];
+
+/** Fragment.fullAt() - exactly the rotation math the game uses. */
+function fragFullAt(shape, x, y, rotation) {
+  const w = rotation % 2 === 0 ? shape[0].length : shape.length;
+  const h = rotation % 2 === 0 ? shape.length : shape[0].length;
+  if (y < 0 || y >= h || x < 0 || x >= w) return false;
+  let sx = 0, sy = 0, mx = 1, my = 1;
+  if (rotation === 1) [sx, sy, mx, my] = [w - 1, 0, -1, 1];
+  else if (rotation === 2) [sx, sy, mx, my] = [w - 1, h - 1, -1, -1];
+  else if (rotation === 3) [sx, sy, mx, my] = [0, h - 1, 1, -1];
+  let qx = sx + mx * x;
+  let qy = sy + my * y;
+  if (rotation % 2 === 1) [qx, qy] = [qy, qx];
+  return shape[qy][qx];
+}
+
+/** Cells a fragment covers when rooted at (rootX, rootY) with the given rotation. */
+function fragCells(shape, rootX, rootY, rotation) {
+  const w = rotation % 2 === 0 ? shape[0].length : shape.length;
+  const h = rotation % 2 === 0 ? shape.length : shape[0].length;
+  const cells = [];
+  for (let x = 0; x < w; ++x)
+    for (let y = 0; y < h; ++y)
+      if (fragFullAt(shape, x, y, rotation)) cells.push([rootX + x, rootY + y]);
+  return cells;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Fake world                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/** A small but realistic network: home + a handful of servers. */
+const SERVERS = {
+  home: {
+    hostname: "home",
+    maxRam: 64,
+    usedRam: 0,
+    root: true,
+    money: 1_000_000,
+    maxMoney: 1_000_000,
+    growth: 10,
+    security: 1,
+    minSecurity: 1,
+    requiredHackingLevel: 0,
+    numPortsRequired: 0,
+    backdoorInstalled: true,
+    cpuCores: 1,
+  },
+  n0006: {
+    hostname: "n0006",
+    maxRam: 8,
+    usedRam: 0,
+    root: true,
+    money: 1_000_000,
+    maxMoney: 1_000_000,
+    growth: 10,
+    security: 1,
+    minSecurity: 1,
+    requiredHackingLevel: 1,
+    numPortsRequired: 0,
+    backdoorInstalled: true,
+    cpuCores: 1,
+  },
+  n0001: {
+    hostname: "n0001",
+    maxRam: 8,
+    usedRam: 0,
+    root: true,
+    money: 2_000_000,
+    maxMoney: 2_000_000,
+    growth: 10,
+    security: 1,
+    minSecurity: 1,
+    requiredHackingLevel: 3,
+    numPortsRequired: 0,
+    backdoorInstalled: true,
+    cpuCores: 1,
+  },
+  n0002: {
+    hostname: "n0002",
+    maxRam: 16,
+    usedRam: 0,
+    root: false,
+    money: 5_000_000,
+    maxMoney: 5_000_000,
+    growth: 10,
+    security: 5,
+    minSecurity: 1,
+    requiredHackingLevel: 10,
+    numPortsRequired: 1,
+    backdoorInstalled: false,
+    cpuCores: 1,
+  },
+  n0003: {
+    hostname: "n0003",
+    maxRam: 32,
+    usedRam: 0,
+    root: false,
+    money: 10_000_000,
+    maxMoney: 10_000_000,
+    growth: 10,
+    security: 10,
+    minSecurity: 1,
+    requiredHackingLevel: 50,
+    numPortsRequired: 2,
+    backdoorInstalled: false,
+    cpuCores: 1,
+  },
+  n0011: {
+    hostname: "n0011",
+    maxRam: 64,
+    usedRam: 0,
+    root: false,
+    money: 50_000_000,
+    maxMoney: 50_000_000,
+    growth: 10,
+    security: 20,
+    minSecurity: 1,
+    requiredHackingLevel: 100,
+    numPortsRequired: 3,
+    backdoorInstalled: false,
+    cpuCores: 1,
+  },
+  n0018: {
+    hostname: "n0018",
+    maxRam: 128,
+    usedRam: 0,
+    root: false,
+    money: 100_000_000,
+    maxMoney: 100_000_000,
+    growth: 10,
+    security: 30,
+    minSecurity: 1,
+    requiredHackingLevel: 200,
+    numPortsRequired: 4,
+    backdoorInstalled: false,
+    cpuCores: 1,
+  },
+  n0024: {
+    hostname: "n0024",
+    maxRam: 256,
+    usedRam: 0,
+    root: false,
+    money: 500_000_000,
+    maxMoney: 500_000_000,
+    growth: 10,
+    security: 50,
+    minSecurity: 1,
+    requiredHackingLevel: 500,
+    numPortsRequired: 5,
+    backdoorInstalled: false,
+    cpuCores: 1,
+  },
+};
+
+const CONNECTIONS = {
+  home: ["n0006", "n0001", "n0002", "n0003"],
+  n0006: ["home", "n0011"],
+  n0001: ["home", "n0018"],
+  n0002: ["home", "n0024"],
+  n0003: ["home", "n0011"],
+  n0011: ["n0006", "n0003", "n0018"],
+  n0018: ["n0001", "n0011", "n0024"],
+  n0024: ["n0002", "n0018"],
+};
+
+/** Parse the enum literal blocks out of defs.d.ts so the mock uses the exact
+ * same names the real game does. */
+function parseEnums(defsPath) {
+  const src = fs.readFileSync(defsPath, "utf8");
+  const out = {};
+  const blocks = [
+    ["CityName", "CityNameEnumType"],
+    ["CrimeType", "CrimeEnumType"],
+    ["FactionWorkType", "FactionWorkEnumType"],
+    ["GymType", "GymEnumType"],
+    ["JobField", "JobFieldEnumType"],
+    ["LocationName", "LocationNameEnumType"],
+    ["UniversityClassType", "UniversityClassEnumType"],
+    ["CompanyName", "CompanyNameEnumType"],
+    ["FactionName", "FactionNameEnumType"],
+    ["BladeburnerActionType", "BladeburnerActionEnumType"],
+    ["GangTaskName", "GangTaskNameEnumType"],
+    ["PositionType", "PositionEnumType"],
+    ["OrderType", "OrderEnumType"],
+  ];
+  for (const [key, typeName] of blocks) {
+    const start = src.indexOf(`type ${typeName} = {`);
+    if (start < 0) continue;
+    const end = src.indexOf("};", start);
+    const body = src.slice(start + `type ${typeName} = {`.length, end);
+    const obj = {};
+    for (const line of body.split("\n")) {
+      const m = line.match(/^\s*([A-Za-z_]+):\s*"([^"]+)";/);
+      if (m) obj[m[1]] = m[2];
+    }
+    out[key] = obj;
+  }
+  return out;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Fake ns                                                                    */
+/* -------------------------------------------------------------------------- */
+
+function makeNs(args, host, opts) {
+  const log = [];
+  const print = (s) => log.push(String(s));
+  const tprint = (s) => log.push(`[tprint] ${s}`);
+
+  /* Scripts like share.ts loop forever. The mock gives every script a budget
+     so an unbounded loop stops instead of hanging the harness. */
+  let budget = 2000;
+  const tick = () => {
+    if (--budget <= 0) throw new Error("MOCK_LOOP_LIMIT: unbounded loop terminated by the harness");
+  };
+
+
+  const player = {
+    money: opts.money,
+    hacking: 250,
+    strength: 100,
+    defense: 100,
+    dexterity: 100,
+    agility: 100,
+    charisma: 100,
+    intelligence: 100,
+    karma: -60000,
+    hp: 100,
+    maxHp: 100,
+    skills: {
+      hacking: 250,
+      strength: 100,
+      defense: 100,
+      dexterity: 100,
+      agility: 100,
+      charisma: 100,
+      intelligence: 100,
+    },
+    jobs: [["Megatech", "Software Engineer"], ["Blade Industries", "Software Engineer"]],
+    factions: ["CyberSec", "BitRunners", "The Black Hand"],
+    bitnode: opts.bitnode,
+    bitNodeOptions: {
+      restrictHomePCUpgrade: false,
+      disableGang: false,
+      disableCorporation: false,
+      disableBladeburner: false,
+      disable4SData: false,
+      disableHacknetServer: false,
+      disableSleeveExpAndAugmentation: false,
+      sourceFileOverrides: new Map(),
+      intelligenceOverride: undefined,
+    },
+    sourceFiles: opts.sourceFiles,
+    augmentationCount: 3,
+    city: "Aevum",
+    factionKills: 0,
+    totalPlaytime: 100000,
+  };
+
+  const gangState = {
+    inGang: opts.sourceFiles.has(2),
+    faction: "BitRunners",
+    respect: 1200,
+    wantedLevel: 250,
+    territory: 0.35,
+    territoryWarfareEngaged: false,
+    memberCount: 6,
+    moneyGainRate: 12000,
+    respectGainRate: 40,
+    wantedLevelGainRate: 5,
+    gang: "BitRunners",
+    isInGang: true,
+  };
+
+  const gangMembers = ["Rex", "Storm", "Nova", "Cipher", "Vex", "Jett"].map((name, i) => ({
+    name,
+    task: "Boost",
+    earnedRespect: 100 + i * 20,
+    hack: 50 + i * 10,
+    str: 20 + i * 5,
+    def: 20 + i * 5,
+    dex: 30 + i * 6,
+    agi: 25 + i * 5,
+    cha: 10 + i * 3,
+    hack_exp: 1000,
+    str_exp: 500,
+    def_exp: 500,
+    dex_exp: 500,
+    agi_exp: 500,
+    cha_exp: 500,
+    hack_mult: 1 + i * 0.1,
+    str_mult: 1 + i * 0.1,
+    def_mult: 1 + i * 0.1,
+    dex_mult: 1 + i * 0.1,
+    agi_mult: 1 + i * 0.1,
+    cha_mult: 1 + i * 0.1,
+    hack_asc_mult: 1,
+    str_asc_mult: 1,
+    def_asc_mult: 1,
+    dex_asc_mult: 1,
+    agi_asc_mult: 1,
+    cha_asc_mult: 1,
+    hack_asc_points: i,
+    str_asc_points: 0,
+    def_asc_points: 0,
+    dex_asc_points: 0,
+    agi_asc_points: 0,
+    cha_asc_points: 0,
+    upgrades: i === 0 ? ["Smart Sniper Rifle"] : [],
+    augmentations: i === 0 ? ["Gang Spark"] : [],
+    respectGain: 1 + i * 0.2,
+    wantedLevelGain: 0.1,
+    moneyGain: 300 + i * 50,
+    expGain: { hack_exp: 10, str_exp: 1, def_exp: 1, dex_exp: 1, agi_exp: 1, cha_exp: 1 },
+  }));
+
+  const gangTasks = [
+    { name: "Boost", isHacking: true, isCombat: false, baseRespect: 0.1, baseWanted: 0.001, baseMoney: 30, difficulty: 1, hackWeight: 1, strWeight: 0, defWeight: 0, dexWeight: 0, agiWeight: 0, chaWeight: 0 },
+    { name: "Hack", isHacking: true, isCombat: false, baseRespect: 0.1, baseWanted: 0.001, baseMoney: 20, difficulty: 1, hackWeight: 1, strWeight: 0, defWeight: 0, dexWeight: 0, agiWeight: 0, chaWeight: 0 },
+    { name: "Robbery", isHacking: false, isCombat: true, baseRespect: 0.1, baseWanted: 0.001, baseMoney: 10, difficulty: 1, hackWeight: 0.7, strWeight: 0.1, defWeight: 0.1, dexWeight: 0.1, agiWeight: 0.1, chaWeight: 0 },
+    { name: "Territory Warfare", isHacking: false, isCombat: true, baseRespect: 0.1, baseWanted: 0.001, baseMoney: 0, difficulty: 1, hackWeight: 0.2, strWeight: 0.2, defWeight: 0.2, dexWeight: 0.2, agiWeight: 0.2, chaWeight: 0 },
+  ];
+
+  const bladeState = {
+    inBladeburner: opts.sourceFiles.has(6) || opts.bitnode === 6 || opts.bitnode === 7,
+    rank: 150,
+    stamina: 60,
+    maxStamina: 100,
+    skillPoints: 8,
+    city: "Aevum",
+    chaos: 0.4,
+    currentAction: null,
+    skills: {},
+    actionLevels: {},
+    teamSizes: {},
+  };
+
+  const corpState = {
+    hasCorp: opts.sourceFiles.has(3) || opts.bitnode === 3,
+    name: "Nova Industries",
+    funds: 5_000_000_000,
+    revenue: 1_000_000,
+    expenses: 200_000,
+    divisions: ["Software", "Food"],
+    valuation: 2_000_000_000,
+    shares: 100_000_000,
+    public: false,
+    investors: [],
+    self: null,
+    state: "running",
+  };
+
+  const sf13 = opts.sourceFiles.get(13) ?? 0;
+  const baseSize = 9 + (opts.bitnode === 13 ? 1 : 0) + sf13;
+  const stanekState = {
+    width: Math.max(2, Math.min(Math.floor(baseSize / 2 + 1), 25)),
+    height: Math.max(3, Math.min(Math.floor(baseSize / 2 + 0.6), 25)),
+    accepted: false,
+    placed: [],
+  };
+
+  const goState = {
+    board: [
+      [".", ".", ".", ".", "."],
+      [".", "O", "O", ".", "."],
+      [".", "O", "X", "X", "."],
+      [".", ".", "X", "X", "."],
+      [".", ".", ".", ".", "."],
+    ],
+    player: "White",
+    whiteScore: 12,
+    blackScore: 13,
+    komi: 2.5,
+    boardSize: 5,
+  };
+
+  const hacknetNodes = Array.from({ length: 3 }, (_, i) => ({
+    name: `HN-${i + 1}`,
+    level: 10 + i * 5,
+    ram: 8,
+    ramUsed: 2,
+    cores: 1,
+    cache: 1,
+    hashes: 100 + i * 50,
+  }));
+
+  const stockSymbols = ["SMI", "JTC", "WDS", "SCPH", "MCI"];
+  const stockPrices = Object.fromEntries(stockSymbols.map((s) => [s, 1000 + Math.floor(Math.random() * 500)]));
+
+  // Real contract names + inputs straight from CodingContractSignatures in defs.d.ts
+  const contracts = [
+    { file: "prime.cct", type: "Find Largest Prime Factor", data: 600851475143, tries: 5 },
+    { file: "subarray.cct", type: "Subarray with Maximum Sum", data: [-1, 2, 3, -5, 1], tries: 5 },
+    { file: "ways.cct", type: "Total Ways to Sum", data: 12, tries: 5 },
+    { file: "ways2.cct", type: "Total Ways to Sum II", data: [12, [1, 2, 3, 4, 5]], tries: 5 },
+    { file: "spiral.cct", type: "Spiralize Matrix", data: [[1, 2, 3], [4, 5, 6], [7, 8, 9]], tries: 5 },
+    { file: "jump.cct", type: "Array Jumping Game", data: [1, 2, 3, 4], tries: 5 },
+    { file: "jump2.cct", type: "Array Jumping Game II", data: [2, 3, 1, 1, 2, 4], tries: 5 },
+    { file: "intervals.cct", type: "Merge Overlapping Intervals", data: [[1, 3], [2, 6], [8, 10], [15, 18]], tries: 5 },
+    { file: "ip.cct", type: "Generate IP Addresses", data: "2552551113333", tries: 5 },
+    { file: "stock1.cct", type: "Algorithmic Stock Trader I", data: [1, 5, 3, 8, 12], tries: 5 },
+    { file: "stock4.cct", type: "Algorithmic Stock Trader IV", data: [2, [1, 5, 3, 8, 12]], tries: 5 },
+    { file: "triangle.cct", type: "Minimum Path Sum in a Triangle", data: [[1], [3, 2], [4, 6, 8]], tries: 5 },
+    { file: "grid1.cct", type: "Unique Paths in a Grid I", data: [3, 4], tries: 5 },
+    { file: "grid2.cct", type: "Unique Paths in a Grid II", data: [[0, 0, 0], [0, 1, 0], [0, 0, 0]], tries: 5 },
+    { file: "shortpath.cct", type: "Shortest Path in a Grid", data: [[0, 1, 0, 0], [0, 1, 0, 0], [0, 0, 0, 0]], tries: 5 },
+    { file: "paren.cct", type: "Sanitize Parentheses in Expression", data: "(unbalanced(", tries: 5 },
+    { file: "hamming.cct", type: "HammingCodes: Integer to Encoded Binary", data: 12, tries: 5 },
+    { file: "graph.cct", type: "Proper 2-Coloring of a Graph", data: [4, [[0, 1], [1, 2], [2, 3], [3, 0]]], tries: 5 },
+    { file: "rle.cct", type: "Compression I: RLE Compression", data: "aaabbbcccc", tries: 5 },
+    { file: "caesar.cct", type: "Encryption I: Caesar Cipher", data: ["HELLO WORLD", 3], tries: 5 },
+    { file: "vigenere.cct", type: "Encryption II: Vigenère Cipher", data: ["ATTACKATDAWN", "LUCIFER"], tries: 5 },
+    { file: "sqrt.cct", type: "Square Root", data: 12345678901234567890n, tries: 5 },
+    { file: "primes.cct", type: "Total Number of Primes", data: [100, 200], tries: 5 },
+    { file: "rect.cct", type: "Largest Rectangle in a Matrix", data: [[1, 0, 1, 0], [1, 1, 1, 0], [0, 1, 1, 1]], tries: 5 },
+  ];
+
+  const darknetServers = [
+    {
+      ip: "198.211.40.12",
+      isConnectedToCurrentServer: true,
+      isOnline: true,
+      modelId: "12345",
+      passwordLength: 8,
+      passwordFormat: "alphanumeric",
+      passwordHint: "starts with the word password",
+      hasSession: false,
+      data: "root: password=correct_horse",
+      blockedRam: 100,
+    },
+    {
+      ip: "203.0.113.77",
+      isConnectedToCurrentServer: true,
+      isOnline: true,
+      modelId: "67890",
+      passwordLength: 6,
+      passwordFormat: "numeric",
+      passwordHint: "six digits",
+      hasSession: false,
+      data: "login: 123456 accepted",
+      blockedRam: 50,
+    },
+  ];
+
+
+  const ns = {
+    args,
+    print,
+    tprint,
+    clearLog: () => { log.length = 0; },
+    disableLog: () => {},
+    sleep: (ms) => { tick(); return new Promise((r) => setTimeout(r, Math.min(Number(ms) || 0, 5))); },
+    toast: (msg) => print(`toast: ${msg}`),
+    flags: {},
+
+    /* --- core --- */
+    getHostname: () => host,
+    scan: (h = host) => CONNECTIONS[h] ?? [],
+    ls: (h = host, filter = "") => {
+      const all = ["share.js", "hack.js", ...MODULES, "contracts.ts", "types.ts",
+        ...contracts.map((c) => c.file), ...PROGRAMS];
+      return filter ? all.filter((f) => f.toLowerCase().endsWith(filter.toLowerCase())) : all;
+    },
+    getServer: (h) => SERVERS[h] ?? null,
+    getServerMaxRam: (h) => SERVERS[h]?.maxRam ?? 0,
+    getServerUsedRam: (h) => SERVERS[h]?.usedRam ?? 0,
+    hasRootAccess: (h) => Boolean(SERVERS[h]?.root),
+    getServerMaxMoney: (h) => SERVERS[h]?.maxMoney ?? 0,
+    getServerMoneyAvailable: (h) => SERVERS[h]?.money ?? 0,
+    getServerGrowth: (h) => SERVERS[h]?.growth ?? 1,
+    getServerSecurityLevel: (h) => SERVERS[h]?.security ?? 1,
+    getServerMinSecurityLevel: (h) => SERVERS[h]?.minSecurity ?? 1,
+    getServerRequiredHackingLevel: (h) => SERVERS[h]?.requiredHackingLevel ?? 0,
+    getServerNumPortsRequired: (h) => SERVERS[h]?.numPortsRequired ?? 0,
+    getHackingLevel: () => player.hacking,
+    getHackTime: (h) => 10000 / Math.max(1, player.hacking / 100),
+    getGrowTime: (h) => 30000,
+    getWeakenTime: (h) => 4000,
+    hackAnalyze: (h) => Math.min(0.5, 0.5 / Math.max(1, SERVERS[h]?.security ?? 1)),
+    hackAnalyzeThreads: (h, amt) => 10,
+    hackAnalyzeChance: (h) => 0.8,
+    growthAnalyze: (h, mult, cores = 1) =>
+      Math.max(1, Math.log(Math.max(mult, 1)) / Math.log(1.001)) / cores,
+    weakenAnalyze: (threads = 1, cores = 1) => threads * cores * 0.01,
+    hack: async (h, o = {}) => (SERVERS[h]?.money ?? 0) * 0.1,
+    grow: async (h, o = {}) => 1000,
+    weaken: async (h, o = {}) => 1,
+    nuke: async (h) => { if (SERVERS[h]) SERVERS[h].root = true; return true; },
+    brutessh: async (h) => true,
+    ftpcrack: async (h) => true,
+    relaysmtp: async (h) => true,
+    httpworm: async (h) => true,
+    sqlinject: async (h) => true,
+    openPort: async (h, p) => true,
+    exec: (file, h, threads, ...a) => {
+      const free = (SERVERS[h]?.maxRam ?? 0) - (SERVERS[h]?.usedRam ?? 0);
+      if (free < threads) return 0;
+      SERVERS[h].usedRam += threads;
+      return 1;
+    },
+    scp: (files, h) => true,
+    kill: (file, h) => true,
+    scriptRunning: (file, h) => false,
+    scriptIsRunning: (file, h) => false,
+    share: async () => { tick(); return 1000; },
+    getPlayer: () => player,
+    getResetInfo: () => ({ currentNode: opts.bitnode, ownedSF: opts.sourceFiles }),
+    getFavorToDonate: () => 10000,
+    getServerBackdoor: (h) => Boolean(SERVERS[h]?.backdoorInstalled),
+    wget: async (url, target, host) => true,
+    download: async (url, target, host) => true,
+    fileExists: (name) => PROGRAMS.has(String(name).toLowerCase()),
+    dynamicImport: async (p) => {
+      const abs = path.isAbsolute(p) ? p : path.join(SCRIPTS, p);
+      return import(pathToFileURL(abs).href);
+    },
+
+    enums: ENUMS,
+
+    formulas: {
+      gang: {
+        moneyGain: (m, t) =>
+          (m.hack * t.hackWeight + m.str * t.strWeight + m.def * t.defWeight +
+            m.dex * t.dexWeight + m.agi * t.agiWeight + m.cha * t.chaWeight) * t.baseMoney,
+        respectGain: (m, t) => (m.hack * t.hackWeight + m.str * t.strWeight) * t.baseRespect,
+        wantedLevelGain: (m, t) => (m.hack * t.hackWeight + m.str * t.strWeight) * t.baseWanted,
+        ascensionPointsGain: (exp) => Math.floor(exp / 100),
+        ascensionMult: (points) => 1 + points * 0.01,
+      },
+      hacking: {
+        hackExp: (level) => level * 1000,
+        hackTime: (server, level) => 10000 / Math.max(1, level / 100),
+        growTime: (server, level) => 30000,
+        weakenTime: (server, level) => 4000,
+        hackChance: (server, threads, level) => 0.8,
+        hackAnalyze: (server) => 0.1,
+        hackAnalyzeThreads: (server, hackAmount) => 10,
+        growthAnalyze: (server, growth, cores) => 100 / cores,
+        weakenAnalyze: (threads, cores) => threads * cores * 0.01,
+      },
+      stock: { forecast: (symbol) => 0.6, volatility: (symbol) => 0.1 },
+    },
+
+
+    /* --- singularity --- */
+    singularity: {
+      checkFactionInvitations: () => ["CyberSec", "BitRunners", "The Black Hand", "Shadows of Anarchy"],
+      joinFaction: (f) => { print(`joined ${f}`); return true; },
+      getFactionRep: (f) => 1000 + (f.length * 10),
+      getFactionFavorGain: (f) => 12,
+      getFactionFavor: (f) => 500,
+      getFactionWorkTypes: (f) => ["hacking", "field", "security"],
+      isBusy: () => false,
+      workForFaction: (f, t) => true,
+      getOwnedAugmentations: (purchased = false) => ["Neural Implant", "Synaptic Accelerator"],
+      getAugmentationsFromFaction: (f) => ["Neural Implant", "Synaptic Accelerator", "Aegis"],
+      getAugmentationPrereq: (a) => [],
+      getAugmentationRepReq: (a) => 1000 + a.length * 50,
+      getAugmentationPrice: (a) => 1_000_000 + a.length * 100_000,
+      donateToFaction: (f, amt) => true,
+      purchaseAugmentation: (f, a) => true,
+      installAugmentations: (script) => true,
+      applyToCompany: (c, f) => "Software Engineering Intern",
+      getCompanyPositionInfo: (c, p) => ({
+        requiredReputation: 1000,
+        requiredHacking: 100,
+        requiredCharisma: 100,
+        salary: 5000,
+        field: String(p),
+        position: p,
+        company: c,
+      }),
+      getCompanyFavorGain: (c) => 5,
+      quitJob: (c) => true,
+      workForCompany: (c) => true,
+      commitCrime: (crime) => 1000,
+      getCrimeStats: (crime) => ({
+        difficulty: 10,
+        karma: -1,
+        kills: 0,
+        money: 10000,
+        time: 1000,
+        type: crime,
+        intelligence: 10,
+        charisma: 10,
+        dexterity: 10,
+        strength: 10,
+        hacking: 10,
+        agility: 10,
+        defense: 10,
+      }),
+      getCrimeChance: (crime) => 0.6,
+      createProgram: (name) => { PROGRAMS.add(name); return true; },
+      getHackingLevelRequirementOfProgram: (name) => 100,
+      purchaseTor: () => true,
+      getDarkwebPrograms: () => [
+        "DeepscanV1.exe", "DeepscanV2.exe", "AutoLink.exe", "ServerProfiler.exe",
+        "Formulas.exe", "BruteSSH.exe", "FTPCrack.exe", "relaySMTP.exe",
+        "HTTPWorm.exe", "SQLInject.exe", "NUKE.exe",
+      ],
+      getDarkwebProgramCost: (name) => 1_000_000,
+      purchaseProgram: (name) => { PROGRAMS.add(name); return true; },
+      getUpgradeHomeRamCost: () => 1_000_000,
+      upgradeHomeRam: () => { SERVERS.home.maxRam *= 2; return true; },
+      getUpgradeHomeCoresCost: () => 500_000,
+      upgradeHomeCores: () => { SERVERS.home.cpuCores += 1; return true; },
+      connect: (h) => { if (SERVERS[h]) { SERVERS[h].root = true; } return true; },
+      installBackdoor: async () => { SERVERS[host].backdoorInstalled = true; return true; },
+    },
+
+    /* --- hacknet --- */
+    hacknet: {
+      numNodes: () => hacknetNodes.length,
+      maxNumNodes: () => 200,
+      getPurchaseNodeCost: () => 10_000 * hacknetNodes.length,
+      purchaseNode: () => {
+        hacknetNodes.push({ name: `HN-${hacknetNodes.length + 1}`, level: 1, ram: 2, ramUsed: 0, cores: 1, cache: 1, hashes: 0 });
+        return hacknetNodes.length - 1;
+      },
+      getNodeStats: (i) => hacknetNodes[i] ?? null,
+      getLevelUpgradeCost: (i, n) => 1000 * n * (hacknetNodes[i]?.level ?? 1),
+      getRamUpgradeCost: (i, n) => 2000 * n,
+      getCoreUpgradeCost: (i, n) => 3000 * n,
+      getCacheUpgradeCost: (i, n) => 4000 * n,
+      upgradeLevel: (i, n) => { if (hacknetNodes[i]) hacknetNodes[i].level += n; return true; },
+      upgradeRam: (i, n) => { if (hacknetNodes[i]) hacknetNodes[i].ram += n; return true; },
+      upgradeCore: (i, n) => { if (hacknetNodes[i]) hacknetNodes[i].cores += n; return true; },
+      upgradeCache: (i, n) => { if (hacknetNodes[i]) hacknetNodes[i].cache += n; return true; },
+      numHashes: () => hacknetNodes.reduce((a, n) => a + n.hashes, 0),
+      hashCapacity: () => hacknetNodes.reduce((a, n) => a + n.cache * 1000, 0),
+      getHashUpgrades: () => ["Sell for Money", "Sell for Corporation Funds", "Reduce Mining Rate", "Increase Production"],
+      getHashUpgradeLevel: (u) => 1,
+      hashCost: (u, n) => 10 * n,
+      spendHashes: (u, n = 1) => true,
+    },
+
+
+    /* --- stock --- */
+    stock: {
+      hasWseAccount: () => opts.sourceFiles.has(8),
+      hasTixApiAccess: () => opts.sourceFiles.has(8),
+      has4SData: () => true,
+      has4SDataTixApi: () => true,
+      purchaseWseAccount: () => true,
+      purchaseTixApi: () => true,
+      purchase4SMarketData: () => true,
+      purchase4SMarketDataTixApi: () => true,
+      getSymbols: () => stockSymbols,
+      getForecast: (s) => 0.4 + Math.random() * 0.4,
+      getForecastFromAccess: (s) => 0.5,
+      getVolatility: (s) => 0.1,
+      getPrice: (s) => stockPrices[s] ?? 1000,
+      getMaxShares: (s) => 100_000,
+      getPosition: (s) => [0, 0, 0, 0],
+      buyStock: (s, n) => true,
+      sellStock: (s, n) => true,
+      buyShort: (s, n) => true,
+      sellShort: (s, n) => true,
+      nextUpdate: async () => { tick(); },
+      getStockData: (s) => [],
+    },
+
+    /* --- gang --- */
+    gang: {
+      inGang: () => gangState.inGang,
+      createGang: (type) => { gangState.inGang = true; gangState.faction = type; return true; },
+      getGangInformation: () => gangState,
+      canRecruitMember: () => gangState.memberCount < 12 && gangState.respect > 100,
+      recruitMember: (name) => {
+        if (gangState.memberCount >= 12) return false;
+        gangState.memberCount += 1;
+        const i = gangMembers.length;
+        gangMembers.push({
+          name, task: "Boost", earnedRespect: 0,
+          hack: 40 + i * 5, str: 15 + i * 3, def: 15 + i * 3, dex: 20 + i * 4, agi: 18 + i * 3, cha: 8 + i * 2,
+          hack_exp: 0, str_exp: 0, def_exp: 0, dex_exp: 0, agi_exp: 0, cha_exp: 0,
+          hack_mult: 1, str_mult: 1, def_mult: 1, dex_mult: 1, agi_mult: 1, cha_mult: 1,
+          hack_asc_mult: 1, str_asc_mult: 1, def_asc_mult: 1, dex_asc_mult: 1, agi_asc_mult: 1, cha_asc_mult: 1,
+          hack_asc_points: 0, str_asc_points: 0, def_asc_points: 0, dex_asc_points: 0, agi_asc_points: 0, cha_asc_points: 0,
+          upgrades: [], augmentations: [],
+          respectGain: 0.5, wantedLevelGain: 0.05, moneyGain: 100,
+          expGain: { hack_exp: 5, str_exp: 1, def_exp: 1, dex_exp: 1, agi_exp: 1, cha_exp: 1 },
+        });
+        return true;
+      },
+      getRecruitsAvailable: () => 12 - gangState.memberCount,
+      respectForNextRecruit: () => gangState.respect * 0.1 + 100,
+      getMemberNames: () => gangMembers.map((m) => m.name),
+      getMemberInformation: (name) => gangMembers.find((m) => m.name === name) ?? null,
+      getTaskNames: () => gangTasks.map((t) => t.name),
+      getTaskStats: (name) => gangTasks.find((t) => t.name === name) ?? null,
+      setMemberTask: (name, task) => {
+        const m = gangMembers.find((x) => x.name === name);
+        if (!m) return false;
+        m.task = task;
+        return true;
+      },
+      getChanceToWinClash: (other) => 0.6,
+      getAllGangInformation: () => ({
+        "Slum Snakes": { respect: 5000, territory: 0.2, wantedLevel: 100 },
+        "The Syndicate": { respect: 8000, territory: 0.3, wantedLevel: 200 },
+      }),
+      setTerritoryWarfare: (b) => { gangState.territoryWarfareEngaged = b; return true; },
+      getEquipmentNames: () => ["Smart Sniper Rifle", "Bayonet", "Katana", "Rifle", "Shotgun", "Submachine Gun", "Glock-18", "M-16", "Sledgehammer", "Baseball Bat", "Excalibur", "Katana", "Unicycle"],
+      getEquipmentCost: (name) => 1000 + name.length * 100,
+      getEquipmentStats: (name) => ({ hack: 1, str: 1, def: 1, dex: 1, agi: 1, cha: 1, mult: 1 }),
+      purchaseEquipment: (member, equip) => true,
+      ascendMember: (member) => ({ respect: 100, wantedLevel: 10 }),
+      nextUpdate: async () => { tick(); },
+    },
+
+    /* --- bladeburner --- */
+    bladeburner: {
+      inBladeburner: () => bladeState.inBladeburner,
+      joinBladeburnerDivision: () => { bladeState.inBladeburner = true; return true; },
+      getRank: () => bladeState.rank,
+      getStamina: () => [bladeState.stamina, bladeState.maxStamina],
+      getSkillPoints: () => bladeState.skillPoints,
+      getSkillLevel: (skill) => bladeState.skills[skill] ?? 0,
+      getSkillUpgradeCost: (skill) => 10 + (bladeState.skills[skill] ?? 0) * 5,
+      upgradeSkill: (skill) => {
+        bladeState.skillPoints -= 1;
+        bladeState.skills[skill] = (bladeState.skills[skill] ?? 0) + 1;
+        return true;
+      },
+      getCity: () => bladeState.city,
+      getCityChaos: (city) => 0.3 + (city.length % 5) * 0.1,
+      switchCity: (city) => { bladeState.city = city; return true; },
+      getCurrentAction: () => bladeState.currentAction,
+      startAction: (type, name) => { bladeState.currentAction = { type, name }; return true; },
+      getGeneralActionNames: () => ["Training", "Investigation", "Tracking", "Operation: Hacking", "Operation: Gathering", "Operation: Retrieval", "Operation: Assassination"],
+      getOperationNames: () => ["Hacking", "Gathering", "Retrieval", "Assassination"],
+      getContractNames: () => ["Kill", "Torture", "Investigation", "Tracking", "Surveillance", "Operation: Hacking"],
+      getNextBlackOp: () => ({ name: "King of the Underground", rank: 250 }),
+      getActionCountRemaining: (type, name) => 10,
+      getActionEstimatedSuccessChance: (type, name) => [0.7, 0.85],
+      getActionRankGain: (type, name) => 0.1,
+      getActionRankLoss: (type, name) => 0.05,
+      getActionRepGain: (type, name) => 0.1,
+      getActionTime: (type, name) => 60000,
+      getActionCurrentLevel: (type, name) => bladeState.actionLevels[`${type}:${name}`] ?? 0,
+      getActionMaxLevel: (type, name) => 5,
+      setActionLevel: (type, name, level) => { bladeState.actionLevels[`${type}:${name}`] = level; return true; },
+      getTeamSize: (type, name) => bladeState.teamSizes[`${type}:${name}`] ?? 1,
+      setTeamSize: (type, name, size) => { bladeState.teamSizes[`${type}:${name}`] = size; return true; },
+      getBonusTime: () => 0,
+      nextUpdate: async () => { tick(); },
+    },
+
+
+    /* --- corporation --- */
+    corporation: {
+      hasCorporation: () => corpState.hasCorp,
+      canCreateCorporation: (crowdFund) => "Success",
+      createCorporation: (name, crowdFund) => { corpState.hasCorp = true; corpState.name = name; return true; },
+      getCorporation: () => corpState,
+      getIndustryData: (industry) => ({ startingCost: 500_000, requirements: {}, product: null }),
+      expandIndustry: (industry, name) => { corpState.divisions.push(name); return true; },
+      getDivision: (name) => ({
+        name,
+        cities: ["Aevum", "Chito City", "Singularity"],
+        products: [],
+        makesProducts: true,
+        maxProducts: 3,
+        revenue: 100_000,
+        growth: 1,
+      }),
+      expandCity: (div, city) => true,
+      getOffice: (div, city) => ({
+        division: div,
+        city,
+        size: 10,
+        numEmployees: 8,
+        employeeJobs: { Management: 2, Sales: 3, Engineering: 3 },
+        employeeProductionByJob: { Management: 0, Sales: 100, Engineering: 200 },
+      }),
+      getOfficeSizeUpgradeCost: (div, city, size) => 10_000 * size,
+      upgradeOfficeSize: (div, city, size) => true,
+      hireEmployee: (div, city, pos) => true,
+      setJobAssignment: (div, city, pos, n) => true,
+      hasWarehouse: () => false,
+      purchaseWarehouse: (div, city) => true,
+      getWarehouse: (div, city) => ({ division: div, city, size: 3, sizeUsed: 1 }),
+      getUpgradeWarehouseCost: (div, city, n = 1) => 10_000 * n,
+      upgradeWarehouse: (div, city, n = 1) => true,
+      getProduct: (div, city, product) => ({
+        name: product, division: div, city, production: 100,
+        stats: { rating: 5, value: 100, multiplier: 1 },
+      }),
+      makeProduct: (div, city, name, rating, value) => true,
+      getHireAdVertCost: (div, city) => 100_000,
+      hireAdVert: (div, city) => true,
+      getConstants: () => ({
+        stateNames: ["running", "idle"],
+        employeePositions: ["Management", "Sales", "Research and Development", "Engineering", "Operations"],
+        industryNames: ["Software", "Food", "Industries", "Mining", "Healthcare"],
+        materialNames: ["Iron", "Gold", "Water", "Wood", "Unobtanium", "Raw Silver", "Lithium", "Osmium"],
+        unlockNames: ["Research Division", "Divisions", "Rebalance Divisions", "Export"],
+        upgradeNames: ["Advertising", "Manufacturing", "Research", "Distribution"],
+        cities: ["Aevum", "Chito City", "Singularity", "Neo Tokyo", "Voltech City", "Illum City", "Corporation City"],
+      }),
+      hasUnlock: (name) => false,
+      getUnlockCost: (name) => 1_000_000,
+      purchaseUnlock: (name) => true,
+      getUpgradeLevel: (name) => 0,
+      getUpgradeLevelCost: (name) => 100_000,
+      levelUpgrade: (name, n = 1) => true,
+      getInvestmentOffer: () => ({ funds: 100_000_000, round: 2, investment: 100_000_000, shares: 1000 }),
+      acceptInvestmentOffer: () => true,
+      goPublic: (shares) => { corpState.public = true; return true; },
+      issueDividends: (rate) => true,
+      nextUpdate: async () => { tick(); },
+      getMaterial: (div, city, mat) => null,
+    },
+
+
+    /* --- stanek --- */
+    stanek: {
+      giftWidth: () => stanekState.width,
+      giftHeight: () => stanekState.height,
+      acceptGift: () => { stanekState.accepted = true; return true; },
+      activeFragments: () => stanekState.placed.map((f) => ({ ...f })),
+      fragmentDefinitions: () => STANEK_FRAGMENTS.map((f) => ({ ...f, shape: f.shape.map((r) => r.slice()) })),
+      canPlaceFragment: (x, y, rot, id) => {
+        const def = STANEK_FRAGMENTS.find((f) => f.id === id);
+        if (!def) throw new Error(`Invalid fragment id: ${id}`);
+        rot = ((rot % 4) + 4) % 4;
+        if (x < 0 || y < 0) return false;
+        const w = rot % 2 === 0 ? def.shape[0].length : def.shape.length;
+        const h = rot % 2 === 0 ? def.shape.length : def.shape[0].length;
+        if (x + w > stanekState.width || y + h > stanekState.height) return false;
+        const count = stanekState.placed.filter((p) => p.id === id).length;
+        if (count >= def.limit) return false;
+        const cells = fragCells(def.shape, x, y, rot);
+        for (const p of stanekState.placed) {
+          const pc = new Set(fragCells(p.shape, p.x, p.y, p.rotation).map(([a, b]) => `${a},${b}`));
+          if (cells.some(([a, b]) => pc.has(`${a},${b}`))) return false;
+        }
+        return true;
+      },
+      placeFragment: (x, y, rot, id) => {
+        if (!ns.stanek.canPlaceFragment(x, y, rot, id)) return false;
+        const def = STANEK_FRAGMENTS.find((f) => f.id === id);
+        rot = ((rot % 4) + 4) % 4;
+        stanekState.placed.push({
+          id, x, y, rotation: rot, shape: def.shape.map((r) => r.slice()),
+          type: def.type, power: def.power, limit: def.limit, effect: def.effect,
+          highestCharge: 0, numCharge: 0, chargedEffect: 0,
+        });
+        return true;
+      },
+      getFragment: (x, y) => stanekState.placed.find((f) => f.x === x && f.y === y),
+      removeFragment: (x, y) => {
+        const i = stanekState.placed.findIndex((f) => f.x === x && f.y === y);
+        if (i < 0) return false;
+        stanekState.placed.splice(i, 1);
+        return true;
+      },
+      clearGift: () => { stanekState.placed = []; },
+      chargeFragment: async (x, y) => {
+        const f = stanekState.placed.find((p) => p.x === x && p.y === y);
+        if (!f) throw new Error(`No fragment with root (${x}, ${y}).`);
+        if (f.type === FRAG.Booster) {
+          throw new Error(`The fragment with root (${x}, ${y}) is a Booster Fragment and thus cannot be charged.`);
+        }
+        f.numCharge += 1;
+        f.highestCharge = Math.max(f.highestCharge, 1);
+        f.chargedEffect = f.power * f.numCharge;
+      },
+    },
+
+    /* --- go --- */
+    go: {
+      getBoardState: () => goState.board.map((row) => row.join("")),
+      getCurrentPlayer: () => goState.player,
+      getGameState: () => ({
+        boardSize: goState.boardSize,
+        whiteScore: goState.whiteScore,
+        blackScore: goState.blackScore,
+        komi: goState.komi,
+        whiteTurn: goState.player === "White",
+      }),
+      makeMove: async (x, y) => {
+        if (x < 0 || y < 0 || x >= goState.boardSize || y >= goState.boardSize) return { type: "illegal", x, y };
+        if (goState.board[x][y] !== ".") return { type: "illegal", x, y };
+        goState.board[x][y] = goState.player === "White" ? "X" : "O";
+        goState.player = goState.player === "White" ? "Black" : "White";
+        return { type: "move", x, y };
+      },
+      passTurn: async () => { goState.player = goState.player === "White" ? "Black" : "White"; return { type: "pass" }; },
+      getMoveHistory: () => [],
+      getOpponent: () => "FiveCardDraw",
+      analysis: {
+        getValidMoves: () => goState.board.map((row) => row.map((c) => c === ".")),
+        getLiberties: () => goState.board.map((row) => row.map((c) => (c === "." ? 0 : 2))),
+        getChains: () => goState.board.map((row) => row.map((c) => (c === "." ? null : 1))),
+        getGroups: () => goState.board.map((row) => row.map((c) => (c === "." ? null : 1))),
+        getEdges: () => goState.board.map((row) => row.map((c) => (c === "." ? null : 1))),
+        getBoardState: () => goState.board.map((row) => row.join("")),
+        captureGroups: () => [],
+        getSurroundedGroups: () => [],
+        removeGroup: () => [],
+      },
+    },
+
+    /* --- infiltration --- */
+    infiltration: {
+      getPossibleLocations: () => [
+        { city: "Aevum", name: "Sigma Pharmaceuticals" },
+        { city: "Aevum", name: "Crush Fitness Gym" },
+        { city: "Chito City", name: "Information Services Company" },
+        { city: "Singularity", name: "Kultek Stores" },
+        { city: "Neo Tokyo", name: "Tianan Systems" },
+      ],
+      getInfiltration: (location) => ({
+        location: { city: "Aevum", name: location },
+        reward: { tradeRep: 1000, sellCash: 5000, SoARep: 100 },
+        difficulty: 3,
+        maxClearanceLevel: 10,
+        startingSecurityLevel: 5,
+      }),
+    },
+
+
+    /* --- darknet --- */
+    dnet: {
+      probe: (returnByIP = false) => darknetServers.map((s) => s.ip),
+      getServerDetails: (ip) => {
+        const s = darknetServers.find((x) => x.ip === ip) ?? darknetServers[0];
+        return { ...s, isOnline: s.isOnline };
+      },
+      getBlockedRam: (ip) => 100,
+      memoryReallocation: async (ip) => ({ success: true, data: null }),
+      heartbleed: async (ip, options = {}) => ({
+        success: true,
+        data: null,
+        logs: [
+          "user: admin pass=correct_horse_battery",
+          "session token 4f3a9c2b1d",
+          "password: bounty_hunter",
+        ],
+      }),
+      authenticate: async (ip, password) => ({ success: true, data: null }),
+      setStasisLink: async (shouldLink = true) => ({ success: true, data: null }),
+      getStasisLinkLimit: () => 5,
+      getStasisLinkedServers: () => [],
+      getDarknetInstability: () => ({
+        authenticationDurationMultiplier: 1,
+        authenticationTimeoutChance: 0.1,
+        authenticationTimeoutDuration: 10000,
+        heartbleedDurationMultiplier: 1,
+        heartbleedFailureChance: 0.05,
+        memoryReallocationDurationMultiplier: 1,
+        memoryReallocationFailureChance: 0.05,
+        probeDurationMultiplier: 1,
+        probeFailureChance: 0.05,
+      }),
+      getHeartbleedTime: (s) => 5000,
+      getExpectedRamBlockRemoved: (s) => 100,
+      getRequiredCharismaForHeartbleed: (s) => 100,
+    },
+
+    /* --- sleeves --- */
+    sleeve: {
+      getNumSleeves: () => opts.sourceFiles.has(10) ? 3 : 0,
+      getSleeve: (i) => ({
+        num: i,
+        shock: Math.max(0, 100 - i * 30),
+        sync: 100 - i * 20,
+        storedCycles: 100000 * i,
+        memory: 16,
+        skills: { hacking: 200 + i * 20, strength: 80 + i * 10, defense: 80 + i * 10, dexterity: 90 + i * 10, agility: 90 + i * 10, charisma: 60 + i * 10, intelligence: 120 + i * 15 },
+        augmentationCount: 2,
+        karma: 0,
+        hp: 100,
+        maxHp: 100,
+        randomTask: null,
+        oldLevel: 1,
+        mults: { hacking: 1, strength: 1, defense: 1, dexterity: 1, agility: 1, charisma: 1, intelligence: 1 },
+      }),
+      getTask: (i) => null,
+      setToShockRecovery: (i) => true,
+      setToSynchronize: (i) => true,
+      setToCommitCrime: (i, crime) => true,
+      setToUniversityCourse: (i, loc, cls) => true,
+      setToGymWorkout: (i, loc, stat) => true,
+      setToCompanyWork: (i, company) => true,
+      setToFactionWork: (i, faction, workType) => true,
+    },
+
+    /* --- coding contracts --- */
+    codingcontract: {
+      getContractTypes: () => contracts.map((c) => c.type),
+      getContractType: (file, h) => contracts.find((c) => c.file === file)?.type ?? "Unknown",
+      getData: (file, h) => contracts.find((c) => c.file === file)?.data ?? [],
+      getNumTriesRemaining: (file, h) => contracts.find((c) => c.file === file)?.tries ?? 0,
+      attempt: (answer, file, h) => {
+        const c = contracts.find((x) => x.file === file);
+        if (!c) return null;
+        c.tries = Math.max(0, c.tries - 1);
+        return 1_000_000;
+      },
+    },
+  };
+
+  ns.log = log;
+  return ns;
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Runner                                                                     */
+/* -------------------------------------------------------------------------- */
+
+async function runModule(file, ns, verbose) {
+  const mod = await import(pathToFileURL(path.join(SCRIPTS, file)).href);
+  if (typeof mod.main !== "function") {
+    return ["library module: exports helpers only, no main()"];
+  }
+  await mod.main(ns);
+  return ns.log;
+}
+
+function parseArgs(argv) {
+  const opts = {
+    modules: [],
+    loops: 3,
+    bitnode: 10,
+    money: 1e9,
+    ram: 1024,
+    verbose: false,
+    sourceFiles: new Map([[2, 1], [3, 1], [4, 1], [6, 1], [8, 1], [9, 1], [10, 1], [13, 1], [14, 1], [15, 1]]),
+  };
+  for (let i = 0; i < argv.length; ++i) {
+    const a = argv[i];
+    if (a === "--loops") opts.loops = Number(argv[++i] ?? 3);
+    else if (a === "--bitnode") opts.bitnode = Number(argv[++i] ?? 10);
+    else if (a === "--money") opts.money = Number(argv[++i] ?? 1e9);
+    else if (a === "--verbose" || a === "-v") opts.verbose = true;
+    else if (a === "--ram") opts.ram = Number(argv[++i] ?? 1024);
+    else if (a === "--no-sf") opts.sourceFiles = new Map();
+    else if (a === "--sf") { const n = Number(argv[++i]); opts.sourceFiles.set(n, Number(argv[++i] ?? 1)); }
+    else if (!a.startsWith("-")) opts.modules.push(a);
+  }
+  return opts;
+}
+
+async function main() {
+  const opts = parseArgs(process.argv.slice(2));
+  ENUMS = parseEnums(path.join(process.cwd(), "defs.d.ts"));
+  SERVERS.home.maxRam = opts.ram;
+
+  const targets = opts.modules.length > 0
+    ? opts.modules.map((m) => (/\.[a-z]+$/i.test(m) ? m : `${m}.ts`))
+    : MODULES;
+
+  const results = [];
+
+  for (const file of targets) {
+    const ns = makeNs(["--dry-run", "--loops", String(opts.loops)], "home", opts);
+    const started = Date.now();
+    let status = "ok";
+    let error = null;
+    try {
+      await runModule(file, ns, opts.verbose);
+    } catch (err) {
+      if (String(err?.message ?? "").includes("MOCK_LOOP_LIMIT")) {
+        status = "ok (loop budget reached)";
+      } else {
+        status = "FAIL";
+        error = err;
+      }
+    }
+    const elapsed = Date.now() - started;
+    results.push({ file, status, elapsed, log: ns.log, error });
+  }
+
+  /* --- report --- */
+  const bar = "=".repeat(78);
+  console.log(bar);
+  console.log(`Bitburner suite dry-run  (bitnode ${opts.bitnode}, loops ${opts.loops})`);
+  console.log(bar);
+
+  let failures = 0;
+  for (const r of results) {
+    console.log(`\n--- ${r.file}  [${r.status}]  ${r.elapsed} ms`);
+    if (r.error) {
+      failures += 1;
+      console.log(`    ERROR: ${r.error.message}`);
+      if (opts.verbose && r.error.stack) {
+        console.log(String(r.error.stack).split("\n").slice(0, 6).map((l) => `      ${l}`).join("\n"));
+      }
+    }
+    if (opts.verbose) {
+      for (const line of r.log) console.log(`    ${line}`);
+    } else {
+      for (const line of r.log.slice(0, 6)) console.log(`    ${line}`);
+      if (r.log.length > 6) console.log(`    ... ${r.log.length - 6} more log lines`);
+    }
+  }
+
+  console.log(`\n${bar}`);
+  console.log(`${results.length - failures}/${results.length} modules ran cleanly.`);
+  if (failures > 0) {
+    console.log("Failing modules: " + results.filter((r) => r.status === "FAIL").map((r) => r.file).join(", "));
+    process.exitCode = 1;
+  }
+  console.log(bar);
+}
+
+if (process.argv[1] && process.argv[1].endsWith("mocksuite.mjs")) {
+  main().catch((err) => {
+    console.error("mocksuite crashed:", err);
+    process.exitCode = 1;
+  });
+}
+
+export { makeNs, runModule, parseArgs, SERVERS, STANEK_FRAGMENTS };
+

@@ -18,6 +18,6 @@ export async function main(ns: NS): Promise<void> {
   void threads; // threads are set by exec/run, not by the script itself
 
   while (true) {
-    await ns.singularity.share();
+    await ns.share();
   }
 }

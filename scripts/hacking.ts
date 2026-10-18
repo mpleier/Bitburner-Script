@@ -41,6 +41,7 @@ export async function main(ns: NS): Promise<void> {
   const interval = Number(flagOr(args, "--interval", 1000));
 
   const core = await ns.dynamicImport("./core.ts");
+  const loops = core.maxLoops(args);
 
   const host = ns.getHostname();
   if (ns.getServerMaxRam(host) < RAM_NEEDED) {
@@ -50,10 +51,10 @@ export async function main(ns: NS): Promise<void> {
 
   ns.print("=== hacking module ===");
 
-  while (true) {
+  for (let loop = 0; loop < loops; ++loop) {
     ensurePrograms(ns, core, dryRun);
     const rooted = rootNetwork(ns, core, dryRun);
-    installBackdoors(ns, core, dryRun);
+    await installBackdoors(ns, core, dryRun);
     upgradeHome(ns, dryRun);
 
     const target = pickTarget(ns, rooted);
@@ -121,7 +122,8 @@ function rootNetwork(ns: NS, core: any, dryRun: boolean): string[] {
 }
 
 /** Install a backdoor on every rooted server we are allowed to. */
-function installBackdoors(ns: NS, core: any, dryRun: boolean): void {
+/** Install backdoors on every rooted server we can reach. */
+async function installBackdoors(ns: NS, core: any, dryRun: boolean): Promise<void> {
   const level = ns.getHackingLevel();
   for (const host of core.rootedServers(ns)) {
     if (host === "home") continue;
@@ -131,7 +133,10 @@ function installBackdoors(ns: NS, core: any, dryRun: boolean): void {
       ns.print(`[dry-run] would install a backdoor on ${host}`);
       continue;
     }
-    if (ns.singularity.installBackdoor(host)) ns.print(`backdoor on ${host}`);
+    // installBackdoor works on the server the script is running on.
+    ns.singularity.connect(host);
+    await ns.singularity.installBackdoor();
+    ns.print(`backdoor on ${host}`);
   }
 }
 

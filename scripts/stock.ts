@@ -27,8 +27,10 @@ export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
 
   const args = ns.args.map(String);
+  const core = await ns.dynamicImport("./core.ts");
   const dryRun = args.includes("--dry-run");
   const risk = Number(flagOr(args, "--risk", 0.02)); // fraction of bankroll per position
+  const loops = core.maxLoops(args);
   const host = ns.getHostname();
 
   if (ns.getServerMaxRam(host) < RAM_NEEDED) {
@@ -38,7 +40,7 @@ export async function main(ns: NS): Promise<void> {
 
   ns.print("=== stock module ===");
 
-  while (true) {
+  for (let loop = 0; loop < loops; ++loop) {
     const cash = ns.getPlayer().money;
 
     // Accounts / data
