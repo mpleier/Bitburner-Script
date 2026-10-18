@@ -1,0 +1,17 @@
+{
+  "name": "bitburner-contract-automation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Coding contract solvers and an in-game GitHub installer for Bitburner.",
+  "scripts": {
+    "build": "tsc --strict --target ES2022 --module commonjs --outDir build scripts/contracts.ts scripts/contractRunner.ts",
+    "selftest": "npm run build && node selftest.mjs",
+    "fuzz": "npm run build && node fuzz.mjs",
+    "mock": "npm run build && node mockrun.mjs",
+    "mock-install": "npm run build && node mockrun.mjs --install --open-ports",
+    "test": "npm run build && node selftest.mjs && node fuzz.mjs && node mockrun.mjs && node mockrun.mjs --install"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}
