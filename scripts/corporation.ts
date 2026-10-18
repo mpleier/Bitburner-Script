@@ -23,7 +23,7 @@
  *   purchaseUnlock 20 | getUpgradeLevel 10 | getUpgradeLevelCost 10
  *   levelUpgrade 20 | getConstants 0 | hasCorporation 0 | canCreateCorporation 0
  *   getBonusTime 0 | nextUpdate 0 | getPlayer 0.5
- *   => ~420 GB. Run it on home once you have upgraded RAM, or on a big server.
+ *   => ~455 GB. Run it on home once you have upgraded RAM, or on a big server.
  *
  * Usage
  *   run corporation.ts
@@ -34,7 +34,13 @@
 // needs no import (globals.d.ts mirrors that for local `tsc` checks).
 import type { CityName, CorpIndustryName } from "./types";
 
-const RAM_NEEDED = 421;
+// core.ts is imported statically on purpose. Bitburner's RAM allocation is
+// computed from the AST of the script and everything it *statically* imports;
+// ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
+// would not be paid for and the game would abort the script with a RAM error.
+import * as core from "./core.ts";
+
+const RAM_NEEDED = 455;
 
 /** Industries worth opening, in order of how good their products are. */
 const INDUSTRY_ORDER: CorpIndustryName[] = [
@@ -57,7 +63,6 @@ export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
 
   const args = ns.args.map(String);
-  const core = await ns.dynamicImport("./core.ts");
   const dryRun = args.includes("--dry-run");
   const loops = core.maxLoops(args);
   const maxDivisions = core.numOr(args, "--divisions", 4);

@@ -4,6 +4,9 @@
     "module": "commonjs",
     "strict": true,
     "noEmit": true,
+    // Bitburner's transpiler (SWC) accepts "./core.ts" as a module specifier,
+    // and the game requires the extension for scripts on non-home servers.
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true

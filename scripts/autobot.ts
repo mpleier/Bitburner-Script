@@ -16,7 +16,7 @@
  *   base 1.6 | scan 0.2 | ls 0.2 | getServer 2 | getHostname 0.05
  *   getServerMaxRam 0.05 | getServerUsedRam 0.05 | hasRootAccess 0.05
  *   getHackingLevel 0.05 | getPlayer 0.5 | scp 0.6 | exec 1.3 | sleep 0
- *   => ~6.5 GB for one planning pass over ~10 servers. Budget 12 GB.
+ *   => 7.65 GB. Budget 8 GB.
  *
  * Usage
  *   run autobot.ts --install                 download everything, then run
@@ -31,11 +31,17 @@
 // Bitburner injects its API typings as a global declaration file, so `NS`
 // needs no import (globals.d.ts mirrors that for local `tsc` checks).
 
+// core.ts is imported statically on purpose. Bitburner's RAM allocation is
+// computed from the AST of the script and everything it *statically* imports;
+// ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
+// would not be paid for and the game would abort the script with a RAM error.
+import * as core from "./core.ts";
+
 const REPO = "mpleier/Bitburner-Script";
 const DEFAULT_REF = "main";
 
 /** RAM the orchestrator itself needs. */
-const AUTOBOT_RAM = 12;
+const AUTOBOT_RAM = 8;
 
 interface Module {
   /** Script filename. */
@@ -59,21 +65,21 @@ interface Module {
  * in each module's header comment.
  */
 const MODULES: Module[] = [
-  { file: "hacking.ts",        ram: 28,  subsystem: "hacking",      priority: 1,  threads: 1, args: [], note: "root servers, backdoors, weaken/grow/hack, home RAM" },
-  { file: "hacknet.ts",        ram: 8,   subsystem: "hacknet",      priority: 2,  threads: 1, args: [], note: "buy/upgrade hacknet nodes, spend hash" },
-  { file: "contractRunner.ts", ram: 28,  subsystem: "contracts",    priority: 3,  threads: 1, args: ["--loop"], note: "find and solve every coding contract" },
-  { file: "factions.ts",       ram: 34,  subsystem: "factions",     priority: 4,  threads: 1, args: [], note: "work for factions, donate, buy augmentations" },
-  { file: "jobs.ts",           ram: 10,  subsystem: "jobs",         priority: 5,  threads: 1, args: [], note: "apply for the best-paying job" },
-  { file: "crime.ts",          ram: 38,  subsystem: "crime",        priority: 6,  threads: 1, args: [], note: "commit the best crime, shadow-chain factions" },
-  { file: "gang.ts",           ram: 28,  subsystem: "gang",         priority: 7,  threads: 1, args: [], note: "gang member task assignment + ascend" },
-  { file: "bladeburner.ts",    ram: 92,  subsystem: "bladeburner",  priority: 8,  threads: 1, args: [], note: "Bladeburner contracts, ops, skill points" },
-  { file: "corporation.ts",    ram: 421, subsystem: "corporation",  priority: 9,  threads: 1, args: [], note: "run a corporation (needs a big server)" },
-  { file: "stock.ts",          ram: 36,  subsystem: "stock",        priority: 10, threads: 1, args: [], note: "tick-based stock trading" },
-  { file: "stanek.ts",         ram: 17,  subsystem: "stanek",       priority: 11, threads: 1, args: [], note: "greedy Stanek fragment packing + charging" },
-  { file: "sleeves.ts",        ram: 45,  subsystem: "sleeves",      priority: 12, threads: 1, args: [], note: "shock, sync, then stat-matched sleeve work" },
-  { file: "go.ts",             ram: 50,  subsystem: "go",           priority: 13, threads: 1, args: [], note: "Bitburner Go: play optimally, collect rewards" },
-  { file: "infiltration.ts",   ram: 18,  subsystem: "infiltration", priority: 14, threads: 1, args: [], note: "SP500 infiltration for materials" },
-  { file: "darknet.ts",        ram: 26,  subsystem: "darknet",      priority: 15, threads: 1, args: [], note: "BN10 Darknet: harvest stasis links" },
+  { file: "hacking.ts",        ram: 39,  subsystem: "hacking",      priority: 1,  threads: 1, args: [], note: "root servers, backdoors, weaken/grow/hack, home RAM" },
+  { file: "hacknet.ts",        ram: 15,   subsystem: "hacknet",      priority: 2,  threads: 1, args: [], note: "buy/upgrade hacknet nodes, spend hash" },
+  { file: "contractRunner.ts", ram: 29,  subsystem: "contracts",    priority: 3,  threads: 1, args: ["--loop"], note: "find and solve every coding contract" },
+  { file: "factions.ts",       ram: 54,  subsystem: "factions",     priority: 4,  threads: 1, args: [], note: "work for factions, donate, buy augmentations" },
+  { file: "jobs.ts",           ram: 18,  subsystem: "jobs",         priority: 5,  threads: 1, args: [], note: "apply for the best-paying job" },
+  { file: "crime.ts",          ram: 42,  subsystem: "crime",        priority: 6,  threads: 1, args: [], note: "commit the best crime, shadow-chain factions" },
+  { file: "gang.ts",           ram: 39,  subsystem: "gang",         priority: 7,  threads: 1, args: [], note: "gang member task assignment + ascend" },
+  { file: "bladeburner.ts",    ram: 72,  subsystem: "bladeburner",  priority: 8,  threads: 1, args: [], note: "Bladeburner contracts, ops, skill points" },
+  { file: "corporation.ts",    ram: 455, subsystem: "corporation",  priority: 9,  threads: 1, args: [], note: "run a corporation (needs a big server)" },
+  { file: "stock.ts",          ram: 39,  subsystem: "stock",        priority: 10, threads: 1, args: [], note: "tick-based stock trading" },
+  { file: "stanek.ts",         ram: 19,  subsystem: "stanek",       priority: 11, threads: 1, args: [], note: "greedy Stanek fragment packing + charging" },
+  { file: "sleeves.ts",        ram: 41,  subsystem: "sleeves",      priority: 12, threads: 1, args: [], note: "shock, sync, then stat-matched sleeve work" },
+  { file: "go.ts",             ram: 53,  subsystem: "go",           priority: 13, threads: 1, args: [], note: "Bitburner Go: play optimally, collect rewards" },
+  { file: "infiltration.ts",   ram: 20,  subsystem: "infiltration", priority: 14, threads: 1, args: [], note: "SP500 infiltration for materials" },
+  { file: "darknet.ts",        ram: 20,  subsystem: "darknet",      priority: 15, threads: 1, args: [], note: "BN10 Darknet: harvest stasis links" },
   { file: "share.ts",          ram: 4,   subsystem: "share",        priority: 16, threads: 1, args: [], note: "fill leftover RAM with share() for faction work" },
 ];
 
@@ -88,7 +94,6 @@ export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
 
   const args = ns.args.map(String);
-  const core = await ns.dynamicImport("./core.ts");
 
   const dryRun = core.hasFlag(args, "--dry-run");
   const interval = core.numOr(args, "--interval", 5000);

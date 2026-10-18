@@ -4,7 +4,7 @@
  * Buys and upgrades Hacknet Nodes, or Hacknet Servers when you have
  * Source-File 8, and spends hash on the useful hash upgrades.
  *
- * RAM cost (GB): base 1.6 + 12 hacknet calls * 0.5 = ~7.6 GB
+ * RAM cost (GB): base 1.6 + 12 hacknet calls * 0.5 + core.ts helpers = ~14.3 GB
  *
  * Usage
  *   run hacknet.ts
@@ -13,6 +13,15 @@
 
 // Bitburner injects its API typings as a global declaration file, so `NS`
 // needs no import (globals.d.ts mirrors that for local `tsc` checks).
+
+// core.ts is imported statically on purpose. Bitburner's RAM allocation is
+// computed from the AST of the script and everything it *statically* imports;
+// ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
+// would not be paid for and the game would abort the script with a RAM error.
+import * as core from "./core.ts";
+
+/** GB of RAM Bitburner allocates for this script. */
+const RAM_NEEDED = 15;
 
 export async function main(ns: NS): Promise<void> {
   ns.clearLog();
@@ -23,7 +32,6 @@ export async function main(ns: NS): Promise<void> {
   const interval = Number(flagOr(args, "--interval", 2000));
   const maxNodes = Number(flagOr(args, "--max-nodes", 200));
   const spendHashes = !args.includes("--no-hashes");
-  const core = await ns.dynamicImport("./core.ts");
   const loops = core.maxLoops(args);
 
   ns.print("=== hacknet module ===");

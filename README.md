@@ -16,34 +16,36 @@ That single command downloads 20 files from GitHub, picks the best server, and s
 
 | Module | RAM | Requires | What it does |
 |---|---:|---|---|
-| `autobot.ts` | 12 GB | — | Orchestrator: installs, plans, places, starts, monitors |
-| `core.ts` | 0 GB* | — | Shared helpers (BFS scan, rooting, formatting) loaded via `dynamicImport` |
-| `types.ts` | 0 GB* | — | Shared type definitions |
-| `hacking.ts` | 28 GB | — | Buys programs, roots servers, leaves backdoors, weaken → grow → hack, upgrades home RAM |
-| `hacknet.ts` | 8 GB | SF6 | Buys/upgrades nodes, spends hash on the best thing |
-| `contractRunner.ts` | 28 GB | — | Finds every `*.cct` on the network and solves it with 24 built-in solvers |
-| `contracts.ts` | 0 GB* | — | The solvers themselves |
-| `factions.ts` | 34 GB | — | Work for factions, donate, buy augmentations |
-| `jobs.ts` | 10 GB | — | Applies for the highest-paying job across all 25 companies |
-| `crime.ts` | 38 GB | — | Picks the best crime by expected money/sec, shadow-chains faction reps |
-| `gang.ts` | 28 GB | SF3 | Recruits, assigns optimal tasks, buys weapons, ascends |
-| `bladeburner.ts` | 92 GB | SF4 / BN4 | City selection, contracts/ops, skill-point spending |
-| `corporation.ts` | 421 GB | SF12 | Self-managing corporation: divisions, offices, hires, materials, research |
-| `stock.ts` | 36 GB | SF8 | Tick-based trading with position sizing |
-| `stanek.ts` | 17 GB | SF11 | Greedy fragment packing with rotation, charges everything |
-| `sleeves.ts` | 45 GB | SF10 | Shock recovery → sync → stat-matched task per sleeve |
-| `go.ts` | 50 GB | SF14 | Plays Go using atari/liberty analysis, collects rewards |
-| `infiltration.ts` | 18 GB | SF13 | Ranks SP500 locations by expected value, infiltrates the best |
-| `darknet.ts` | 26 GB | BN10 | Harvests stasis links, probes neighbours, heartbleeds logs |
+| `autobot.ts` | 8 GB | — | Orchestrator: installs, plans, places, starts, monitors |
+| `core.ts` | 4.8 GB* | — | Shared helpers (BFS scan, rooting, formatting), statically imported by every module |
+| `types.ts` | 0 GB | — | Shared type definitions (type-only import, erased by the transpiler) |
+| `hacking.ts` | 39 GB | — | Buys programs, roots servers, leaves backdoors, weaken → grow → hack, upgrades home RAM |
+| `hacknet.ts` | 15 GB | SF6 | Buys/upgrades nodes, spends hash on the best thing |
+| `contractRunner.ts` | 29 GB | — | Finds every `*.cct` on the network and solves it with 24 built-in solvers |
+| `contracts.ts` | 0 GB* | — | The solvers themselves (they make no API calls, so `dynamicImport` is safe) |
+| `factions.ts` | 54 GB | — | Work for factions, donate, buy augmentations |
+| `jobs.ts` | 18 GB | — | Applies for the highest-paying job across all 25 companies |
+| `crime.ts` | 42 GB | — | Picks the best crime by expected money/sec, shadow-chains faction reps |
+| `gang.ts` | 39 GB | SF3 | Recruits, assigns optimal tasks, buys weapons, ascends |
+| `bladeburner.ts` | 72 GB | SF4 / BN4 | City selection, contracts/ops, skill-point spending |
+| `corporation.ts` | 455 GB | SF12 | Self-managing corporation: divisions, offices, hires, materials, research |
+| `stock.ts` | 39 GB | SF8 | Tick-based trading with position sizing |
+| `stanek.ts` | 19 GB | SF11 | Greedy fragment packing with rotation, charges everything |
+| `sleeves.ts` | 41 GB | SF10 | Shock recovery → sync → stat-matched task per sleeve |
+| `go.ts` | 53 GB | SF14 | Plays Go using atari/liberty analysis, collects rewards |
+| `infiltration.ts` | 20 GB | SF13 | Ranks SP500 locations by expected value, infiltrates the best |
+| `darknet.ts` | 20 GB | BN10 | Harvests stasis links, probes neighbours, heartbleeds logs |
 | `share.ts` | 4 GB | — | Fills leftover RAM with `share()` for faction work |
 
-\* `core.ts`, `types.ts` and `contracts.ts` are loaded with `ns.dynamicImport()`, which has a
-**RAM cost of 0 GB**. They still have to be present on the same server as the module that
-imports them — `autobot.ts` copies them there automatically.
+\* `core.ts` is **statically** imported, so its API calls are added to every module that
+imports it. `contracts.ts` is the only `ns.dynamicImport()` in the suite, and that is safe
+only because it makes no API calls at all. Every module needs `core.ts`, `types.ts` and
+`contracts.ts` on the same server — `autobot.ts` `scp`s them there automatically.
 
-Total RAM if every module ran at once: **~895 GB**. In practice the orchestrator only starts
-the subsystems that are actually unlocked, and it refuses to start anything that would
-over-commit a server.
+Total RAM if every module ran at once: **~959 GB** (with Source-File 4 installed). Without
+SF4 the Singularity API costs 16× more, so the Singularity-heavy modules need far more RAM
+than the table shows. In practice the orchestrator only starts the subsystems that are
+actually unlocked, and it refuses to start anything that would over-commit a server.
 
 ---
 
@@ -201,6 +203,28 @@ every port you have a program for and NUKEs the server. Already-open ports count
 
 ## RAM: what actually costs what
 
+Bitburner **reserves** RAM statically and **charges** it dynamically:
+
+* `src/Script/RamCalculations.ts` walks the AST of the script **and of every script it
+  statically imports**, and sums the cost of every distinct `ns.*` function it can see on
+  top of the 1.6 GB base cost. That sum is the allocation the script gets.
+* `src/Netscript/APIWrapper.ts` then charges each function the **first time it is actually
+  called**. Calling `ns.scan()` a thousand times costs 0.2 GB, not 200 GB.
+
+Two consequences worth knowing:
+
+1. A function is paid for as soon as it appears anywhere in the file, even in a branch
+   that never runs.
+2. **`ns.dynamicImport()` is invisible to the static pass.** The API calls made inside a
+   dynamically imported module are still charged, but nothing reserved them, and the game
+   aborts the script with
+   `Dynamic RAM usage calculated to be greater than RAM allocation.`
+   That is exactly why every module here uses
+   `import * as core from "./core.ts";` instead of `await ns.dynamicImport("./core.ts")`.
+
+`node ramgap.mjs` replays both passes locally and fails if any script's dynamic charge can
+ever exceed its allocation.
+
 RAM costs come straight from the game's
 [RamCostGenerator.ts](RamCostGenerator.ts), and every module header lists its own
 breakdown. The big ones:
@@ -224,7 +248,7 @@ breakdown. The big ones:
 | `ns.bladeburner.*` | 4 GB per call |
 | `ns.gang.*` | 2 GB per call |
 
-`corporation.ts` is the outlier at **421 GB** because the Corporation API has ~100
+`corporation.ts` is the outlier at **455 GB** because the Corporation API has ~100
 functions and each one is charged separately. It will only start once you have a server
 with that much RAM (a fully upgraded home, or a big server like `n0001` after
 `--open-ports` and RAM upgrades). The module prints a clear message and exits instead of
@@ -286,6 +310,9 @@ mocksuite.mjs         fake ns API, runs the whole suite offline
 selftest.mjs          known-answer solver tests
 fuzz.mjs              randomized differential tests
 importcheck.mjs       replays the game's module resolver to catch bad imports
+ramgap.mjs            static allocation vs. dynamic charge, per script
+ramcheck.mjs          per-module RAM budget audit
+ramtable.json         the RAM cost table extracted from RamCostGenerator.ts
 tsconfig.json         strict TS config (noEmit)
 globals.d.ts          makes NS global for local tsc, like the game's editor does
 defs.d.ts             the game's own API typings
@@ -301,7 +328,8 @@ c_*.ts                reference copies of official contract implementations
 |---|---|
 | `Module not found: ../defs.d` | Do not import the typings. `NS` is a global type in Bitburner; see [Typing `ns`](#typing-ns-why-there-is-no-import--ns-anywhere). |
 | `FAILED to download ...` | Check the branch with `--ref main`. `raw.githubusercontent.com` allows CORS, so `wget` works; a proxy/firewall may not. |
-| `autobot.ts needs ~12 GB` | Run it on a server with at least 12 GB, or use `--only hacknet,share` until you have one. |
+| `autobot.ts needs ~8 GB` | Run it on a server with at least 8 GB, or use `--only hacknet,share` until you have one. |
+| `Dynamic RAM usage calculated to be greater than RAM allocation` | The script's declared budget is below what Bitburner actually allocates. Run `node ramgap.mjs` to see the real allocation of every module, then raise that module's `RAM_NEEDED`. This is also what happens if a module that calls the API is loaded through `ns.dynamicImport()`. |
 | `Not enough RAM` in a module | That module's header lists the exact requirement. Root a bigger server or upgrade home RAM. |
 | `Could not start autobot.ts` | `exec` requires root on the target server. Root it first, or run the installer somewhere you already have root. |
 | A module shows as `blocked` | The dashboard prints why (missing Source-File, Bitnode requirement, not enough RAM). It is not a bug. |

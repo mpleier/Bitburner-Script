@@ -7,8 +7,12 @@
  * src/codingContracts/ContractTypes.ts, so the values returned here are the
  * exact answers that ns.codingcontract.attempt() accepts.
  *
- * RAM cost: 0 GB. ns.dynamicImport() is free, so importing this file adds
- * nothing to a script's RAM usage.
+ * RAM cost: 0 GB. This file makes no ns API calls at all, so ns.dynamicImport()
+ * (0 GB) is safe here. If you ever add an ns.* call to this file, change
+ * contractRunner.ts to a static `import * as solvers from "./contracts.ts";` -
+ * dynamically imported modules are invisible to Bitburner's static RAM pass and
+ * the game would abort with "Dynamic RAM usage calculated to be greater than
+ * RAM allocation".
  *
  * Usage:
  *   const solvers = await ns.dynamicImport("./contracts.ts");

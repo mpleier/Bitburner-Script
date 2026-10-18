@@ -1241,7 +1241,7 @@ function parseArgs(argv) {
     money: 1e9,
     ram: 1024,
     verbose: false,
-    sourceFiles: new Map([[2, 1], [3, 1], [4, 1], [6, 1], [8, 1], [9, 1], [10, 1], [13, 1], [14, 1], [15, 1]]),
+    sourceFiles: new Map([[2, 1], [3, 1], [4, 4], [6, 1], [8, 1], [9, 1], [10, 1], [13, 1], [14, 1], [15, 1]]),
   };
   for (let i = 0; i < argv.length; ++i) {
     const a = argv[i];

@@ -10,7 +10,7 @@
  * RAM cost (GB):
  *   base 1.6 | getPossibleLocations 0 | getInfiltration 15
  *   getPlayer 0.5 | getStat 0.05 | getServerMaxRam 0.05 | getHostname 0.05
- *   => ~18 GB
+ *   => ~20 GB
  *
  * Usage
  *   run infiltration.ts
@@ -20,14 +20,19 @@
 // Bitburner injects its API typings as a global declaration file, so `NS`
 // needs no import (globals.d.ts mirrors that for local `tsc` checks).
 
-const RAM_NEEDED = 18;
+// core.ts is imported statically on purpose. Bitburner's RAM allocation is
+// computed from the AST of the script and everything it *statically* imports;
+// ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
+// would not be paid for and the game would abort the script with a RAM error.
+import * as core from "./core.ts";
+
+const RAM_NEEDED = 20;
 
 export async function main(ns: NS): Promise<void> {
   ns.clearLog();
   ns.disableLog("ALL");
 
   const args = ns.args.map(String);
-  const core = await ns.dynamicImport("./core.ts");
   const loops = core.maxLoops(args);
   const top = core.numOr(args, "--top", 10);
   const repOnly = args.includes("--rep-only");

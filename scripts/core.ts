@@ -3,11 +3,21 @@
  * ============================================================================
  * Shared helpers for the Bitburner automation suite.
  *
- * RAM cost: 0 GB. Scripts pulled in with ns.dynamicImport() add nothing to a
- * script's RAM usage, so every helper here is free.
+ * How this file is paid for:
+ * Bitburner reserves RAM *statically* - it walks the AST of the script being run
+ * plus every script it *statically* imports (src/Script/RamCalculations.ts) -
+ * but it charges RAM *dynamically*, the first time each ns function is actually
+ * called (src/Netscript/APIWrapper.ts -> helpers.updateDynamicRam).
  *
- * Every module in scripts/ imports this file with:
- *   const core = await ns.dynamicImport("./core.ts");
+ * A module pulled in with ns.dynamicImport() is invisible to the static pass, so
+ * the API calls it makes would be charged against an allocation that never
+ * reserved them, and the game would abort the script with:
+ *   "Dynamic RAM usage calculated to be greater than RAM allocation."
+ *
+ * core.ts calls the API, so every module imports it with
+ *   import * as core from "./core.ts";
+ * which makes those calls visible to the static pass. The distinct API calls in
+ * this file add ~2.85 GB to every module that imports it.
  *
  * Flags understood by every module:
  *   --dry-run     make no state-changing calls, just report what would happen

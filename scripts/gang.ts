@@ -18,7 +18,7 @@
  *   purchaseEquipment 4 | ascendMember 4 | getAscensionResult 2
  *   setTerritoryWarfare 2 | getChanceToWinClash 4 | getBonusTime 0 | nextUpdate 0
  *   + getPlayer 0.5 | getServerMaxRam 0.05 | getHostname 0.05
- *   => ~28 GB
+ *   => ~39 GB
  *
  * Usage
  *   run gang.ts
@@ -28,7 +28,13 @@
 // Bitburner injects its API typings as a global declaration file, so `NS`
 // needs no import (globals.d.ts mirrors that for local `tsc` checks).
 
-const RAM_NEEDED = 28;
+// core.ts is imported statically on purpose. Bitburner's RAM allocation is
+// computed from the AST of the script and everything it *statically* imports;
+// ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
+// would not be paid for and the game would abort the script with a RAM error.
+import * as core from "./core.ts";
+
+const RAM_NEEDED = 39;
 
 /** Gangs you can create, split by what they reward. */
 const HACKING_GANGS = ["BitRunners", "The Black Hand", "NiteSec"] as const;
@@ -49,7 +55,6 @@ export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
 
   const args = ns.args.map(String);
-  const core = await ns.dynamicImport("./core.ts");
   const dryRun = args.includes("--dry-run");
   const loops = core.maxLoops(args);
   const interval = core.numOr(args, "--interval", 2000);

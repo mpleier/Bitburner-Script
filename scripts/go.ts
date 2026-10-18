@@ -12,7 +12,7 @@
  *   getGameState 0 | getOpponent 0 | resetBoardState 0
  *   analysis.getValidMoves 8 | analysis.getLiberties 16 | analysis.getChains 16
  *   analysis.getStats 0 | getServerMaxRam 0.05 | getHostname 0.05
- *   => ~50 GB
+ *   => ~53 GB
  *
  * Usage
  *   run go.ts
@@ -22,14 +22,19 @@
 // Bitburner injects its API typings as a global declaration file, so `NS`
 // needs no import (globals.d.ts mirrors that for local `tsc` checks).
 
-const RAM_NEEDED = 50;
+// core.ts is imported statically on purpose. Bitburner's RAM allocation is
+// computed from the AST of the script and everything it *statically* imports;
+// ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
+// would not be paid for and the game would abort the script with a RAM error.
+import * as core from "./core.ts";
+
+const RAM_NEEDED = 53;
 
 export async function main(ns: NS): Promise<void> {
   ns.clearLog();
   ns.disableLog("ALL");
 
   const args = ns.args.map(String);
-  const core = await ns.dynamicImport("./core.ts");
   const dryRun = args.includes("--dry-run");
   const loops = core.maxLoops(args);
   const host = ns.getHostname();

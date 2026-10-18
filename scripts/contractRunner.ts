@@ -17,7 +17,7 @@
  *   attempt 10 | nuke 0.05 | brutessh 0.05 | ftpcrack 0.05 | relaysmtp 0.05
  *   httpworm 0.05 | sqlinject 0.05 | exec 1.3 | scp 0.6 | sleep/print/tprint 0
  *   dynamicImport 0  -> contracts.ts itself costs 0 RAM
- *   => ~27.4 GB worst case. If the current server cannot hold that, the script
+ *   => ~29 GB worst case. If the current server cannot hold that, the script
  *      copies itself to the biggest server you already have root on and runs there.
  *
  * Usage
@@ -44,7 +44,7 @@ type Solvers = {
 };
 
 /** Worst-case RAM the script needs (see header). */
-const RAM_NEEDED = 28;
+const RAM_NEEDED = 29;
 
 export async function main(ns: NS): Promise<void> {
   ns.clearLog();

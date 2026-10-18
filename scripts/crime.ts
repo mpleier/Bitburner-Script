@@ -13,7 +13,7 @@
  *   + getAugmentationPrice 2.5 + getAugmentationRepReq 2.5
  *   + getOwnedAugmentations 5 + purchaseAugmentation 5 + donateToFaction 5
  *   + getFavorToDonate 0.1
- *   => ~37 GB
+ *   => ~42 GB
  *
  * Usage
  *   run crime.ts
@@ -23,7 +23,13 @@
 // Bitburner injects its API typings as a global declaration file, so `NS`
 // needs no import (globals.d.ts mirrors that for local `tsc` checks).
 
-const RAM_NEEDED = 38;
+// core.ts is imported statically on purpose. Bitburner's RAM allocation is
+// computed from the AST of the script and everything it *statically* imports;
+// ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
+// would not be paid for and the game would abort the script with a RAM error.
+import * as core from "./core.ts";
+
+const RAM_NEEDED = 42;
 
 /** All crimes, taken from the enum so the names are always valid. */
 function allCrimes(ns: NS) {
@@ -40,7 +46,6 @@ export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
 
   const args = ns.args.map(String);
-  const core = await ns.dynamicImport("./core.ts");
   const dryRun = args.includes("--dry-run");
   const focus = args.includes("--focus") ? args[args.indexOf("--focus") + 1] : "money";
   const loops = core.maxLoops(args);

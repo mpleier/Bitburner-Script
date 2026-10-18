@@ -18,7 +18,7 @@
  *   setActionLevel 4 | getTeamSize 4 | setTeamSize 4 | getStamina 4
  *   startAction 4 | getCurrentAction 1 | getCity 4 | getCityChaos 4
  *   switchCity 4 | getBonusTime 0 | nextUpdate 0 | getPlayer 0.5
- *   => ~92 GB (the Bladeburner API is one of the priciest in the game)
+ *   => ~72 GB (the Bladeburner API is one of the priciest in the game)
  *
  * Usage
  *   run bladeburner.ts
@@ -31,7 +31,13 @@
 // "Module not found: ../defs.d" error, because a .d file is not a script.
 import type { BladeburnerActionType, BladeburnerSkillName, CityName } from "./types";
 
-const RAM_NEEDED = 92;
+// core.ts is imported statically on purpose. Bitburner's RAM allocation is
+// computed from the AST of the script and everything it *statically* imports;
+// ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
+// would not be paid for and the game would abort the script with a RAM error.
+import * as core from "./core.ts";
+
+const RAM_NEEDED = 72;
 
 /** Stamina each action type costs, straight from the game constants. */
 const STAMINA_COST: Record<BladeburnerActionType, number> = {
@@ -65,7 +71,6 @@ export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
 
   const args = ns.args.map(String);
-  const core = await ns.dynamicImport("./core.ts");
   const dryRun = args.includes("--dry-run");
   const loops = core.maxLoops(args);
   const host = ns.getHostname();

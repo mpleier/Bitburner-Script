@@ -10,8 +10,10 @@
     "fuzz": "npm run build && node fuzz.mjs",
     "mock": "node mocksuite.mjs",
     "imports": "node importcheck.mjs",
+    "ram": "node ramgap.mjs",
+    "ramcheck": "node ramcheck.mjs",
     "suite": "node mocksuite.mjs --loops 3 --verbose",
-    "test": "npm run typecheck && npm run imports && npm run selftest && npm run fuzz && node mocksuite.mjs"
+    "test": "npm run typecheck && npm run imports && npm run ram && npm run selftest && npm run fuzz && node mocksuite.mjs"
   },
   "devDependencies": {
     "@swc/core": "^1.16.18",

@@ -21,7 +21,7 @@
  *   upgradeHomeRam 3 | upgradeHomeCores 3 | getUpgradeHomeRamCost 1.5 | getUpgradeHomeCoresCost 1.5
  *   createProgram 5 | purchaseProgram 2 | purchaseTor 2
  *   getDarkwebPrograms 0.5 | getDarkwebProgramCost 0.5
- *   => ~28 GB. Run it on a server with at least 32 GB.
+ *   => ~39 GB. Run it on a server with at least 32 GB.
  *
  * Usage
  *   run hacking.ts
@@ -31,7 +31,13 @@
 // Bitburner injects its API typings as a global declaration file, so `NS`
 // needs no import (globals.d.ts mirrors that for local `tsc` checks).
 
-const RAM_NEEDED = 28;
+// core.ts is imported statically on purpose. Bitburner's RAM allocation is
+// computed from the AST of the script and everything it *statically* imports;
+// ns.dynamicImport() is invisible to that pass, so the API calls core.ts makes
+// would not be paid for and the game would abort the script with a RAM error.
+import * as core from "./core.ts";
+
+const RAM_NEEDED = 39;
 
 export async function main(ns: NS): Promise<void> {
   ns.clearLog();
@@ -41,7 +47,6 @@ export async function main(ns: NS): Promise<void> {
   const dryRun = args.includes("--dry-run");
   const interval = Number(flagOr(args, "--interval", 1000));
 
-  const core = await ns.dynamicImport("./core.ts");
   const loops = core.maxLoops(args);
 
   const host = ns.getHostname();
