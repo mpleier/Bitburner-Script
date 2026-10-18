@@ -26,7 +26,7 @@
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
 
-const RAM_NEEDED = 20;
+const RAM_NEEDED = 27;
 
 export async function main(ns: NS): Promise<void> {
   ns.clearLog();

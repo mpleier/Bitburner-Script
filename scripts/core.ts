@@ -17,7 +17,9 @@
  * core.ts calls the API, so every module imports it with
  *   import * as core from "./core.ts";
  * which makes those calls visible to the static pass. The distinct API calls in
- * this file add ~2.85 GB to every module that imports it.
+ * this file add ~9.7 GB (11.3 GB including the 1.6 GB base) to every module that
+ * imports it - the Bladeburner/work-conflict helpers alone account for 6.5 GB of
+ * that (getOwnedAugmentations 5 GB, getCurrentAction 1 GB, isBusy 0.5 GB).
  *
  * Flags understood by every module:
  *   --dry-run     make no state-changing calls, just report what would happen
@@ -287,4 +289,73 @@ export function subsystemAvailable(ns: NS, name: string): boolean {
     default:
       return true;
   }
+}
+
+
+/* -------------------------------------------------------------------------- */
+/*  Bladeburner / work conflict                                                */
+/* -------------------------------------------------------------------------- */
+/*
+ * The game cancels a running Bladeburner action the instant the player has any
+ * `currentWork` (company job, faction work, crime, class work, share) and does
+ * not own the BladesSimulacrum augmentation:
+ *
+ *   // src/Bladeburner/Bladeburner.ts -> Bladeburner.process() (paraphrased)
+ *   if (Player.currentWork && !Player.hasAugmentation(AugmentationName.BladesSimulacrum, true)) {
+ *     this.cancelAction();   // action reset, automation switched off, dialog shown
+ *   }
+ *
+ * `Player.currentWork` is set by company work, faction work, crimes, class work
+ * and ns.share(). ns.singularity.isBusy() is slightly broader - it also reports
+ * the Infiltration and BitVerse pages - so using it as the test is conservative.
+ *
+ * So a work-based subsystem and a Bladeburner operation cannot run at the same
+ * time unless BladesSimulacrum is installed. These helpers let every module
+ * check that before calling ns.workForCompany()/ns.share()/commitCrime().
+ *
+ * RAM: bladeburner.inBladeburner 0 GB, bladeburner.getCurrentAction 1 GB,
+ *      singularity.isBusy 0.5 GB, singularity.getOwnedAugmentations 5 GB.
+ */
+
+/** Are we in the Bladeburner division at all? (cheap, never throws) */
+export function inBladeburner(ns: NS): boolean {
+  return tryCall(() => ns.bladeburner.inBladeburner(), false);
+}
+
+/** Is a Bladeburner action currently running? */
+export function bladeburnerBusy(ns: NS): boolean {
+  if (!inBladeburner(ns)) return false;
+  return tryCall(() => ns.bladeburner.getCurrentAction(), null) != null;
+}
+
+/** Do we own BladesSimulacrum, which lets work and Bladeburner coexist? */
+export function hasBladesSimulacrum(ns: NS): boolean {
+  return tryCall(() => ns.singularity.getOwnedAugmentations(true), []).includes("BladesSimulacrum");
+}
+
+/**
+ * Would the player's current work cancel a Bladeburner action?
+ * Returns false when we are not in the division or when BladesSimulacrum
+ * lets work and Bladeburner run at the same time.
+ */
+export function wouldCancelBladeburner(ns: NS): boolean {
+  if (!inBladeburner(ns)) return false;
+  if (hasBladesSimulacrum(ns)) return false;
+  return tryCall(() => ns.singularity.isBusy(), false);
+}
+
+/**
+ * Is the player's time already claimed by one side of the conflict?
+ *
+ * The rule is symmetric: starting a job/crime/share while a Bladeburner action
+ * is running cancels that action, and starting a Bladeburner action while the
+ * player is working cancels it too. Modules that want to take over the player's
+ * time call this before workForCompany()/workForFaction()/commitCrime()/share().
+ *
+ * No extra RAM: it reuses the same four calls listed above.
+ */
+export function workBladeburnerConflict(ns: NS): boolean {
+  if (!inBladeburner(ns)) return false;
+  if (hasBladesSimulacrum(ns)) return false;
+  return bladeburnerBusy(ns) || tryCall(() => ns.singularity.isBusy(), false);
 }

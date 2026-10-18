@@ -33,7 +33,7 @@ import type { CrimeType, GymType, SleevePerson } from "./types";
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
 
-const RAM_NEEDED = 41;
+const RAM_NEEDED = 48;
 
 /** Crimes keyed by the stat they lean on most (real CrimeType names). */
 const CRIMES_BY_STAT: Record<string, CrimeType> = {

@@ -183,6 +183,22 @@ const ENUM_ARGS = {
   "corporation.getUnlockCost": [[1, "CorpUnlockName"]],
   "corporation.getUpgradeLevel": [[1, "CorpUpgradeName"]],
   "corporation.createDivision": [[1, "IndustryType"]],
+  "corporation.getIndustryData": [[0, "CorpIndustryName"]],
+  "corporation.expandIndustry": [[0, "CorpIndustryName"]],
+  "corporation.expandCity": [[1, "CityName"]],
+  "corporation.getOffice": [[1, "CityName"]],
+  "corporation.getOfficeSizeUpgradeCost": [[1, "CityName"]],
+  "corporation.upgradeOfficeSize": [[1, "CityName"]],
+  "corporation.hireEmployee": [[1, "CityName"]],
+  "corporation.setJobAssignment": [[1, "CityName"], [2, "CorpEmployeePosition"]],
+  "corporation.hasWarehouse": [[1, "CityName"]],
+  "corporation.purchaseWarehouse": [[1, "CityName"]],
+  "corporation.getWarehouse": [[1, "CityName"]],
+  "corporation.getUpgradeWarehouseCost": [[1, "CityName"]],
+  "corporation.upgradeWarehouse": [[1, "CityName"]],
+  "corporation.getProduct": [[1, "CityName"]],
+  "corporation.makeProduct": [[1, "CityName"]],
+  "corporation.sellProduct": [[1, "CityName"]],
 };
 
 /* -------------------------------------------------------------------------- */

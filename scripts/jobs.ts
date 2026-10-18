@@ -11,8 +11,14 @@
  *   base 1.6 | applyToCompany 1 | workForCompany 3 | getCompanyRep 1
  *   getCompanyFavor 1 | getCompanyFavorGain 1 | getCompanyPositions 1
  *   getCompanyPositionInfo 1 | quitJob 1 | isBusy 0.5 | getPlayer 0.5
+ *   + core.ts helpers (inBladeburner 0, getCurrentAction 1, isBusy 0.5,
+ *     getOwnedAugmentations 5) - already counted in the isBusy line
  *   + getHostname 0.05 | getServerMaxRam 0.05
- *   => ~18 GB
+ *   => 24 GB (ramgap.mjs computes the exact number)
+ *
+ * Bladeburner note: workForCompany() sets Player.currentWork, which cancels a
+ * running Bladeburner action unless BladesSimulacrum is installed, so the module
+ * checks core.workBladeburnerConflict() before taking over the player's time.
  *
  * Usage
  *   run jobs.ts
@@ -28,7 +34,7 @@
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
 
-const RAM_NEEDED = 18;
+const RAM_NEEDED = 24;
 
 /** Types pulled from the enums so every name passed to the API is valid. */
 type Company = ReturnType<typeof companies>[number];
@@ -108,8 +114,12 @@ export async function main(ns: NS): Promise<void> {
     } else {
       const position = applyBest(ns, best.company, allFields);
       if (position) {
-        ns.print(`working at ${best.company} as ${position}`);
-        if (!ns.singularity.isBusy()) ns.singularity.workForCompany(best.company);
+        if (core.workBladeburnerConflict(ns)) {
+          ns.print(`Bladeburner action running - not working at ${best.company} (it would cancel the action)`);
+        } else if (!ns.singularity.isBusy()) {
+          ns.print(`working at ${best.company} as ${position}`);
+          ns.singularity.workForCompany(best.company);
+        }
       }
     }
 

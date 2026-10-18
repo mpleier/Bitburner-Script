@@ -139,6 +139,8 @@ const SCRIPTS = path.join(process.cwd(), "scripts");
 const MODULES = [
   "core.ts",
   "hacking.ts",
+  "_backdoortest.ts",
+  "_bladeburnertest.ts",
   "hacknet.ts",
   "stock.ts",
   "factions.ts",
@@ -250,6 +252,7 @@ function fragCells(shape, rootX, rootY, rotation) {
 const SERVERS = {
   home: {
     hostname: "home",
+    purchasedByPlayer: true,
     maxRam: 64,
     usedRam: 0,
     root: true,
@@ -368,17 +371,60 @@ const SERVERS = {
     backdoorInstalled: false,
     cpuCores: 1,
   },
+  /* A purchased cloud server: rooted, but it is *ours*, so installBackdoor()
+     must refuse it exactly like the real game does (server.purchasedByPlayer). */
+  "C-1": {
+    hostname: "C-1",
+    purchasedByPlayer: true,
+    maxRam: 16,
+    usedRam: 0,
+    root: true,
+    money: 0,
+    maxMoney: 0,
+    growth: 1,
+    security: 1,
+    minSecurity: 1,
+    requiredHackingLevel: 0,
+    numPortsRequired: 0,
+    backdoorInstalled: false,
+    cpuCores: 1,
+  },
+  /* The World Daemon: foreign, needs hacking 2000, and backdooring it ends the
+     bitnode. It is deliberately unreachable at the mock's hacking level. */
+  daemon: {
+    hostname: "daemon",
+    purchasedByPlayer: false,
+    maxRam: 0,
+    usedRam: 0,
+    root: false,
+    money: 0,
+    maxMoney: 0,
+    growth: 1,
+    security: 100,
+    minSecurity: 100,
+    requiredHackingLevel: 2000,
+    numPortsRequired: 5,
+    backdoorInstalled: false,
+    cpuCores: 1,
+  },
 };
 
+/** src/Server/Server.ts defaults purchasedByPlayer to false for foreign servers. */
+for (const server of Object.values(SERVERS)) {
+  if (server.purchasedByPlayer === undefined) server.purchasedByPlayer = false;
+}
+
 const CONNECTIONS = {
-  home: ["n0006", "n0001", "n0002", "n0003"],
+  home: ["n0006", "n0001", "n0002", "n0003", "C-1"],
   n0006: ["home", "n0011"],
   n0001: ["home", "n0018"],
   n0002: ["home", "n0024"],
   n0003: ["home", "n0011"],
   n0011: ["n0006", "n0003", "n0018"],
-  n0018: ["n0001", "n0011", "n0024"],
-  n0024: ["n0002", "n0018"],
+  n0018: ["n0001", "n0011", "n0024", "daemon"],
+  n0024: ["n0002", "n0018", "daemon"],
+  "C-1": ["home"],
+  daemon: ["n0018", "n0024"],
 };
 
 /** Parse the enum literal blocks out of defs.d.ts so the mock uses the exact
@@ -431,6 +477,14 @@ function makeNs(args, host, opts) {
   const tick = () => {
     if (--budget <= 0) throw new Error("MOCK_LOOP_LIMIT: unbounded loop terminated by the harness");
   };
+
+  /* Player.getCurrentServer(): ns.singularity.installBackdoor() has no hostname
+     argument, it always acts on the server we are *connected to*. The mock tracks
+     that so the "it is your server" guard can be exercised. */
+  let currentServer = host;
+  /* Player.currentWork mirror. Bladeburner.process() cancels a running action
+     whenever this is non-null and BladesSimulacrum is not installed. */
+  let currentWork = null;
 
 
   const player = {
@@ -554,7 +608,10 @@ function makeNs(args, host, opts) {
   };
 
   const corpState = {
-    hasCorp: opts.sourceFiles.has(3) || opts.bitnode === 3,
+    // A player with Source-File 3 is *allowed* to create a corporation, but does
+    // not own one until a script actually calls createCorporation(). The mock
+    // starts without one so the "Must own a corporation." guard is exercised.
+    hasCorp: opts.withCorp === true,
     name: "Nova Industries",
     funds: 5_000_000_000,
     revenue: 1_000_000,
@@ -566,6 +623,30 @@ function makeNs(args, host, opts) {
     investors: [],
     self: null,
     state: "running",
+  };
+
+  /* Stock market state, mirroring Player.hasWseAccount / hasTixApiAccess /
+     has4SData / has4SDataTixApi. Nothing is granted for free: the mock starts
+     with no access so the "You don't have TIX API Access!" guards are exercised
+     exactly like the real game (src/StockMarket.ts). Pass --with-stock to start
+     with everything already bought. */
+  const stockState = {
+    hasWseAccount: opts.withStock === true,
+    hasTixApiAccess: opts.withStock === true,
+    has4SData: opts.withStock === true,
+    has4SDataTixApi: opts.withStock === true,
+    disable4SData: opts.disable4SData === true,
+  };
+  const COSTS = { wse: 4_000_000, tix: 2_000_000, fourS: 1_000_000, fourSTix: 1_000_000 };
+  const needTix = (fn) => {
+    if (!stockState.hasTixApiAccess) {
+      throw new Error(`You don't have TIX API Access! Cannot use stock.${fn}()`);
+    }
+  };
+  const need4STix = (fn) => {
+    if (!stockState.has4SDataTixApi) {
+      throw new Error(`You don't have 4S Market Data TIX API Access! Cannot use stock.${fn}()`);
+    }
   };
 
   const sf13 = opts.sourceFiles.get(13) ?? 0;
@@ -720,7 +801,7 @@ function makeNs(args, host, opts) {
     kill: (file, h) => true,
     scriptRunning: (file, h) => false,
     scriptIsRunning: (file, h) => false,
-    share: async () => { tick(); return 1000; },
+    share: async () => { tick(); currentWork = "share"; return 1000; },
     getPlayer: () => player,
     getResetInfo: () => ({ currentNode: opts.bitnode, ownedSF: opts.sourceFiles }),
     getFavorToDonate: () => 10000,
@@ -768,9 +849,15 @@ function makeNs(args, host, opts) {
       getFactionFavorGain: (f) => 12,
       getFactionFavor: (f) => 500,
       getFactionWorkTypes: (f) => ["hacking", "field", "security"],
-      isBusy: () => false,
-      workForFaction: (f, t) => { assertEnum("singularity.workForFaction", "faction", "FactionName", f); assertEnum("singularity.workForFaction", "workType", "FactionWorkType", t); return true; },
-      getOwnedAugmentations: (purchased = false) => ["Neural Accelerator", "Synaptic Enhancement Implant"],
+      isBusy: () => currentWork !== null,
+      getCurrentWork: () => currentWork,
+      stopAction: () => { currentWork = null; return true; },
+      workForFaction: (f, t) => { assertEnum("singularity.workForFaction", "faction", "FactionName", f); assertEnum("singularity.workForFaction", "workType", "FactionWorkType", t); currentWork = `faction:${f}:${t}`; return true; },
+      getOwnedAugmentations: (purchased = false) => [
+        "Neural Accelerator",
+        "Synaptic Enhancement Implant",
+        ...(opts.bladesSimulacrum ? ["BladesSimulacrum"] : []),
+      ],
       getAugmentationsFromFaction: (f) => {
         assertEnum("singularity.getAugmentationsFromFaction", "faction", "FactionName", f);
         if (f === "Shadows of Anarchy") {
@@ -812,8 +899,8 @@ function makeNs(args, host, opts) {
       },
       getCompanyFavorGain: (c) => 5,
       quitJob: (c) => { assertEnum("singularity.quitJob", "companyName", "CompanyName", c); return true; },
-      workForCompany: (c) => { assertEnum("singularity.workForCompany", "companyName", "CompanyName", c); return true; },
-      commitCrime: (crime) => { assertEnum("singularity.commitCrime", "crimeType", "CrimeType", crime); return 1000; },
+      workForCompany: (c) => { assertEnum("singularity.workForCompany", "companyName", "CompanyName", c); currentWork = `company:${c}`; return true; },
+      commitCrime: (crime) => { assertEnum("singularity.commitCrime", "crimeType", "CrimeType", crime); currentWork = `crime:${crime}`; return 1000; },
       getCrimeStats: (crime) => ({
         difficulty: 10,
         karma: -1,
@@ -844,8 +931,41 @@ function makeNs(args, host, opts) {
       upgradeHomeRam: () => { SERVERS.home.maxRam *= 2; return true; },
       getUpgradeHomeCoresCost: () => 500_000,
       upgradeHomeCores: () => { SERVERS.home.cpuCores += 1; return true; },
-      connect: (h) => { if (SERVERS[h]) { SERVERS[h].root = true; } return true; },
-      installBackdoor: async () => { SERVERS[host].backdoorInstalled = true; return true; },
+      connect: (h) => {
+        const server = SERVERS[h];
+        if (!server) return false;
+        // src/Singularity.ts: home is always connectable.
+        if (h === "home") { currentServer = "home"; return true; }
+        if (h === currentServer) return true;
+        // You can only connect to a directly adjacent server, or to one that
+        // already has a backdoor installed.
+        const adjacent = (CONNECTIONS[currentServer] ?? []).includes(h);
+        if (!adjacent && !server.backdoorInstalled) return false;
+        currentServer = h;
+        return true;
+      },
+      installBackdoor: async () => {
+        const server = SERVERS[currentServer];
+        if (!server) throw new Error("singularity.installBackdoor: Cannot backdoor this kind of server.");
+        // src/Hacking/netscriptCanHack.ts -> baseCheck(server, "backdoor")
+        if (server.purchasedByPlayer) {
+          throw new Error(
+            `singularity.installBackdoor: Cannot backdoor ${currentServer} server because it is your server`
+          );
+        }
+        if (!server.root) {
+          throw new Error(
+            `singularity.installBackdoor: Cannot backdoor ${currentServer} server because you do not have root access`
+          );
+        }
+        if (server.requiredHackingLevel > player.skills.hacking) {
+          throw new Error(
+            `singularity.installBackdoor: Cannot hack ${currentServer} server because your hacking skill is not high enough`
+          );
+        }
+        server.backdoorInstalled = true;
+        return undefined;
+      },
     },
 
     /* --- hacknet --- */
@@ -877,27 +997,61 @@ function makeNs(args, host, opts) {
 
     /* --- stock --- */
     stock: {
-      hasWseAccount: () => opts.sourceFiles.has(8),
-      hasTixApiAccess: () => opts.sourceFiles.has(8),
-      has4SData: () => true,
-      has4SDataTixApi: () => true,
-      purchaseWseAccount: () => true,
-      purchaseTixApi: () => true,
-      purchase4SMarketData: () => true,
-      purchase4SMarketDataTixApi: () => true,
-      getSymbols: () => stockSymbols,
-      getForecast: (s) => 0.4 + Math.random() * 0.4,
-      getForecastFromAccess: (s) => 0.5,
-      getVolatility: (s) => 0.1,
-      getPrice: (s) => stockPrices[s] ?? 1000,
-      getMaxShares: (s) => 100_000,
-      getPosition: (s) => [0, 0, 0, 0],
-      buyStock: (s, n) => true,
-      sellStock: (s, n) => true,
-      buyShort: (s, n) => true,
-      sellShort: (s, n) => true,
-      nextUpdate: async () => { tick(); },
-      getStockData: (s) => [],
+      getConstants: () => ({ tickInterval: 2000, cycleMs: 2000 }),
+      hasWseAccount: () => stockState.hasWseAccount,
+      hasTixApiAccess: () => stockState.hasTixApiAccess,
+      has4SData: () => stockState.has4SData,
+      has4SDataTixApi: () => stockState.has4SDataTixApi,
+      purchaseWseAccount: () => {
+        if (stockState.hasWseAccount) return true;
+        if (player.money < COSTS.wse) return false;
+        player.money -= COSTS.wse;
+        stockState.hasWseAccount = true;
+        return true;
+      },
+      purchaseTixApi: () => {
+        if (stockState.hasTixApiAccess) return true;
+        if (player.money < COSTS.tix) return false;
+        player.money -= COSTS.tix;
+        stockState.hasTixApiAccess = true;
+        return true;
+      },
+      purchase4SMarketData: () => {
+        if (stockState.disable4SData) return false;
+        if (stockState.has4SData) return true;
+        if (!stockState.hasWseAccount) return false;
+        if (player.money < COSTS.fourS) return false;
+        player.money -= COSTS.fourS;
+        stockState.has4SData = true;
+        return true;
+      },
+      purchase4SMarketDataTixApi: () => {
+        if (stockState.disable4SData) return false;
+        needTix("purchase4SMarketDataTixApi");
+        if (stockState.has4SDataTixApi) return true;
+        if (player.money < COSTS.fourSTix) return false;
+        player.money -= COSTS.fourSTix;
+        stockState.has4SDataTixApi = true;
+        return true;
+      },
+      getSymbols: () => { needTix("getSymbols"); return stockSymbols; },
+      getOrganization: (s) => { needTix("getOrganization"); return `Org ${s}`; },
+      getAskPrice: (s) => { needTix("getAskPrice"); return stockPrices[s] ?? 1000; },
+      getBidPrice: (s) => { needTix("getBidPrice"); return stockPrices[s] ?? 1000; },
+      getPrice: (s) => { needTix("getPrice"); return stockPrices[s] ?? 1000; },
+      getMaxShares: (s) => { needTix("getMaxShares"); return 100_000; },
+      getPosition: (s) => { needTix("getPosition"); return [0, 0, 0, 0]; },
+      getPurchaseCost: (s, n) => { needTix("getPurchaseCost"); return n * (stockPrices[s] ?? 1000); },
+      getSaleGain: (s, n) => { needTix("getSaleGain"); return n * (stockPrices[s] ?? 1000); },
+      getForecast: (s) => { need4STix("getForecast"); return 0.4 + Math.random() * 0.4; },
+      getVolatility: (s) => { need4STix("getVolatility"); return 0.1; },
+      buyStock: (s, n) => { needTix("buyStock"); return n; },
+      sellStock: (s, n) => { needTix("sellStock"); return n; },
+      buyShort: (s, n) => { needTix("buyShort"); return n; },
+      sellShort: (s, n) => { needTix("sellShort"); return n; },
+      getOrders: () => { needTix("getOrders"); return {}; },
+      getBonusTime: () => { needTix("getBonusTime"); return 0; },
+      nextUpdate: async () => { needTix("nextUpdate"); tick(); return 2000; },
     },
 
     /* --- gang --- */
@@ -966,7 +1120,12 @@ function makeNs(args, host, opts) {
       getCity: () => bladeState.city,
       getCityChaos: (city) => 0.3 + (city.length % 5) * 0.1,
       switchCity: (city) => { bladeState.city = city; return true; },
-      getCurrentAction: () => bladeState.currentAction,
+      getCurrentAction: () => {
+        // Mirror Bladeburner.process(): player work cancels the action unless
+        // BladesSimulacrum is installed.
+        if (currentWork && !opts.bladesSimulacrum) bladeState.currentAction = null;
+        return bladeState.currentAction;
+      },
       startAction: (type, name) => { bladeState.currentAction = { type, name }; return true; },
       getGeneralActionNames: () => ["Training", "Investigation", "Tracking", "Operation: Hacking", "Operation: Gathering", "Operation: Retrieval", "Operation: Assassination"],
       getOperationNames: () => ["Hacking", "Gathering", "Retrieval", "Assassination"],
@@ -991,8 +1150,20 @@ function makeNs(args, host, opts) {
     /* --- corporation --- */
     corporation: {
       hasCorporation: () => corpState.hasCorp,
-      canCreateCorporation: (crowdFund) => "Success",
-      createCorporation: (name, crowdFund) => { corpState.hasCorp = true; corpState.name = name; return true; },
+      canCreateCorporation: (selfFund) => {
+        if (corpState.hasCorp) return "CorporationExists";
+        if (!(opts.sourceFiles.has(3) || opts.bitnode === 3)) return "NoSf3OrDisabled";
+        if (!selfFund && opts.bitnode !== 3) return "UseSeedMoneyOutsideBN3";
+        return "Success";
+      },
+      createCorporation: (name, selfFund) => {
+        if (corpState.hasCorp) return false;
+        if (!(opts.sourceFiles.has(3) || opts.bitnode === 3)) return false;
+        if (!selfFund && opts.bitnode !== 3) return false;
+        corpState.hasCorp = true;
+        corpState.name = name;
+        return true;
+      },
       getCorporation: () => corpState,
       getIndustryData: (industry) => ({ startingCost: 500_000, requirements: {}, product: null }),
       expandIndustry: (industry, name) => { corpState.divisions.push(name); return true; },
@@ -1290,6 +1461,18 @@ function makeNs(args, host, opts) {
       };
     }
   };
+  /* Faithful "Must own a corporation." guard: in the real game every
+     Corporation API except hasCorporation/canCreateCorporation runs
+     checkAccess() first and throws when Player.corporation is null.
+     Applied before wrapRam so the RAM accounting still sees these calls. */
+  for (const [key, fn] of Object.entries(ns.corporation)) {
+    if (key === "hasCorporation" || key === "canCreateCorporation" || key === "createCorporation") continue;
+    ns.corporation[key] = (...args) => {
+      if (!corpState.hasCorp) throw new Error(`corporation.${key}: Must own a corporation.`);
+      return fn(...args);
+    };
+  }
+
   wrapRam(ns);
 
   ns.log = log;
@@ -1319,7 +1502,11 @@ function parseArgs(argv) {
     ram: 1024,
     verbose: false,
     live: false,
+    withCorp: false,
+    withStock: false,
+    disable4SData: false,
     bladeAction: null,
+    bladesSimulacrum: false,
     sourceFiles: new Map([[2, 1], [3, 1], [4, 4], [6, 1], [8, 1], [9, 1], [10, 1], [13, 1], [14, 1], [15, 1]]),
   };
   for (let i = 0; i < argv.length; ++i) {
@@ -1329,8 +1516,12 @@ function parseArgs(argv) {
     else if (a === "--money") opts.money = Number(argv[++i] ?? 1e9);
     else if (a === "--verbose" || a === "-v") opts.verbose = true;
     else if (a === "--live") opts.live = true;
+    else if (a === "--with-corp") opts.withCorp = true;
+    else if (a === "--with-stock") opts.withStock = true;
+    else if (a === "--disable-4s") opts.disable4SData = true;
     else if (a === "--ram") opts.ram = Number(argv[++i] ?? 1024);
     else if (a === "--blade-action") opts.bladeAction = { type: argv[++i] ?? "Operations", name: argv[++i] ?? "Raid" };
+    else if (a === "--blades-simulacrum") opts.bladesSimulacrum = true;
     else if (a === "--no-sf") opts.sourceFiles = new Map();
     else if (a === "--sf") { const n = Number(argv[++i]); opts.sourceFiles.set(n, Number(argv[++i] ?? 1)); }
     else if (!a.startsWith("-")) opts.modules.push(a);

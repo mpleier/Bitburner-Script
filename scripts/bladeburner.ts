@@ -1,7 +1,7 @@
 /**
  * bladeburner.ts
  * ============================================================================
- * Bladeburner automation (BitNode 4 / Source-File 4):
+ * Bladeburner automation (BitNode 6/7 or Source-File 6/7):
  *   - joins the division
  *   - spends skill points in the order that pays off fastest
  *   - picks the action with the best expected rank per point of stamina
@@ -18,7 +18,8 @@
  *   setActionLevel 4 | getTeamSize 4 | setTeamSize 4 | getStamina 4
  *   startAction 4 | getCurrentAction 1 | getCity 4 | getCityChaos 4
  *   switchCity 4 | getBonusTime 0 | nextUpdate 0 | getPlayer 0.5
- *   => ~72 GB (the Bladeburner API is one of the priciest in the game)
+ *   core.ts conflict helpers: isBusy 0.5 | getOwnedAugmentations 5 | inBladeburner 0
+ *   => ~78 GB (the Bladeburner API is one of the priciest in the game)
  *
  * Usage
  *   run bladeburner.ts
@@ -37,7 +38,7 @@ import type { BladeburnerActionType, BladeburnerSkillName, CityName } from "./ty
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
 
-const RAM_NEEDED = 72;
+const RAM_NEEDED = 78;
 
 /** Stamina each action type costs, straight from the game constants. */
 const STAMINA_COST: Record<BladeburnerActionType, number> = {
@@ -104,13 +105,21 @@ export async function main(ns: NS): Promise<void> {
 
     const action = ns.bladeburner.getCurrentAction();
     if (!action) {
-      const choice = bestAction(ns);
-      if (choice) {
-        if (dryRun) {
-          ns.print(`[dry-run] would start ${choice.type} "${choice.name}" (score ${choice.score.toFixed(3)})`);
-        } else {
-          ns.bladeburner.startAction(choice.type, choice.name);
-          ns.print(`started ${choice.type} "${choice.name}"`);
+      // Bladeburner.process() resets the action whenever Player.currentWork is
+      // set and we do not own BladesSimulacrum, so starting an action while a
+      // company job, faction work, share or crime is running would immediately
+      // cancel it (the game shows a "Bladeburner action cancelled" message).
+      if (core.wouldCancelBladeburner(ns)) {
+        ns.print("player is working (job/faction/share/crime) - Bladeburner actions get cancelled, skipping");
+      } else {
+        const choice = bestAction(ns);
+        if (choice) {
+          if (dryRun) {
+            ns.print(`[dry-run] would start ${choice.type} "${choice.name}" (score ${choice.score.toFixed(3)})`);
+          } else {
+            ns.bladeburner.startAction(choice.type, choice.name);
+            ns.print(`started ${choice.type} "${choice.name}"`);
+          }
         }
       }
     }

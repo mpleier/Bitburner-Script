@@ -40,8 +40,8 @@ import * as core from "./core.ts";
 const REPO = "mpleier/Bitburner-Script";
 const DEFAULT_REF = "main";
 
-/** RAM the orchestrator itself needs. */
-const AUTOBOT_RAM = 8;
+/** RAM the orchestrator itself needs (7.65 GB of its own calls + core.ts 6.5 GB). */
+const AUTOBOT_RAM = 15;
 
 interface Module {
   /** Script filename. */
@@ -61,26 +61,27 @@ interface Module {
 }
 
 /**
- * The whole suite. RAM figures come from RamCostGenerator.ts and are repeated
- * in each module's header comment.
+ * The whole suite. RAM figures are the *real* allocation Bitburner computes for
+ * each file (its own ns calls plus the 11.3 GB core.ts is statically imported
+ * by every module). `npm run ram` regenerates them from RamCostGenerator.ts.
  */
 const MODULES: Module[] = [
-  { file: "hacking.ts",        ram: 39,  subsystem: "hacking",      priority: 1,  threads: 1, args: [], note: "root servers, backdoors, weaken/grow/hack, home RAM" },
-  { file: "hacknet.ts",        ram: 15,   subsystem: "hacknet",      priority: 2,  threads: 1, args: [], note: "buy/upgrade hacknet nodes, spend hash" },
+  { file: "hacking.ts",        ram: 45,  subsystem: "hacking",      priority: 1,  threads: 1, args: [], note: "root servers, backdoors, weaken/grow/hack, home RAM" },
+  { file: "hacknet.ts",        ram: 21,  subsystem: "hacknet",      priority: 2,  threads: 1, args: [], note: "buy/upgrade hacknet nodes, spend hash" },
   { file: "contractRunner.ts", ram: 29,  subsystem: "contracts",    priority: 3,  threads: 1, args: ["--loop"], note: "find and solve every coding contract" },
-  { file: "factions.ts",       ram: 54,  subsystem: "factions",     priority: 4,  threads: 1, args: [], note: "work for factions, donate, buy augmentations" },
-  { file: "jobs.ts",           ram: 18,  subsystem: "jobs",         priority: 5,  threads: 1, args: [], note: "apply for the best-paying job" },
-  { file: "crime.ts",          ram: 42,  subsystem: "crime",        priority: 6,  threads: 1, args: [], note: "commit the best crime, shadow-chain factions" },
-  { file: "gang.ts",           ram: 39,  subsystem: "gang",         priority: 7,  threads: 1, args: [], note: "gang member task assignment + ascend" },
-  { file: "bladeburner.ts",    ram: 72,  subsystem: "bladeburner",  priority: 8,  threads: 1, args: [], note: "Bladeburner contracts, ops, skill points" },
-  { file: "corporation.ts",    ram: 455, subsystem: "corporation",  priority: 9,  threads: 1, args: [], note: "run a corporation (needs a big server)" },
-  { file: "stock.ts",          ram: 39,  subsystem: "stock",        priority: 10, threads: 1, args: [], note: "tick-based stock trading" },
-  { file: "stanek.ts",         ram: 19,  subsystem: "stanek",       priority: 11, threads: 1, args: [], note: "greedy Stanek fragment packing + charging" },
-  { file: "sleeves.ts",        ram: 41,  subsystem: "sleeves",      priority: 12, threads: 1, args: [], note: "shock, sync, then stat-matched sleeve work" },
-  { file: "go.ts",             ram: 53,  subsystem: "go",           priority: 13, threads: 1, args: [], note: "Bitburner Go: play optimally, collect rewards" },
-  { file: "infiltration.ts",   ram: 20,  subsystem: "infiltration", priority: 14, threads: 1, args: [], note: "SP500 infiltration for materials" },
-  { file: "darknet.ts",        ram: 20,  subsystem: "darknet",      priority: 15, threads: 1, args: [], note: "BN10 Darknet: harvest stasis links" },
-  { file: "share.ts",          ram: 4,   subsystem: "share",        priority: 16, threads: 1, args: [], note: "fill leftover RAM with share() for faction work" },
+  { file: "factions.ts",       ram: 55,  subsystem: "factions",     priority: 4,  threads: 1, args: [], note: "work for factions, donate, buy augmentations" },
+  { file: "jobs.ts",           ram: 24,  subsystem: "jobs",         priority: 5,  threads: 1, args: [], note: "apply for the best-paying job" },
+  { file: "crime.ts",          ram: 43,  subsystem: "crime",        priority: 6,  threads: 1, args: [], note: "commit the best crime, shadow-chain factions" },
+  { file: "gang.ts",           ram: 46,  subsystem: "gang",         priority: 7,  threads: 1, args: [], note: "gang member task assignment + ascend" },
+  { file: "bladeburner.ts",    ram: 78,  subsystem: "bladeburner",  priority: 8,  threads: 1, args: [], note: "Bladeburner contracts, ops, skill points" },
+  { file: "corporation.ts",    ram: 462, subsystem: "corporation",  priority: 9,  threads: 1, args: [], note: "run a corporation (needs a big server)" },
+  { file: "stock.ts",          ram: 45,  subsystem: "stock",        priority: 10, threads: 1, args: [], note: "tick-based stock trading" },
+  { file: "stanek.ts",         ram: 26,  subsystem: "stanek",       priority: 11, threads: 1, args: [], note: "greedy Stanek fragment packing + charging" },
+  { file: "sleeves.ts",        ram: 48,  subsystem: "sleeves",      priority: 12, threads: 1, args: [], note: "shock, sync, then stat-matched sleeve work" },
+  { file: "go.ts",             ram: 60,  subsystem: "go",           priority: 13, threads: 1, args: [], note: "Bitburner Go: play optimally, collect rewards" },
+  { file: "infiltration.ts",   ram: 27,  subsystem: "infiltration", priority: 14, threads: 1, args: [], note: "SP500 infiltration for materials" },
+  { file: "darknet.ts",        ram: 26,  subsystem: "darknet",      priority: 15, threads: 1, args: [], note: "BN10 Darknet: harvest stasis links" },
+  { file: "share.ts",          ram: 6,   subsystem: "share",        priority: 16, threads: 1, args: [], note: "fill leftover RAM with share() for faction work" },
 ];
 
 /** Files every module needs next to it. */

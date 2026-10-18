@@ -16,33 +16,33 @@ That single command downloads 20 files from GitHub, picks the best server, and s
 
 | Module | RAM | Requires | What it does |
 |---|---:|---|---|
-| `autobot.ts` | 8 GB | — | Orchestrator: installs, plans, places, starts, monitors |
-| `core.ts` | 4.8 GB* | — | Shared helpers (BFS scan, rooting, formatting), statically imported by every module |
+| `autobot.ts` | 15 GB | — | Orchestrator: installs, plans, places, starts, monitors |
+| `core.ts` | 11.3 GB* | — | Shared helpers (BFS scan, rooting, formatting, Bladeburner/work conflict guards), statically imported by every module |
 | `types.ts` | 0 GB | — | Shared type definitions (type-only import, erased by the transpiler) |
-| `hacking.ts` | 39 GB | — | Buys programs, roots servers, leaves backdoors, weaken → grow → hack, upgrades home RAM |
-| `hacknet.ts` | 15 GB | SF6 | Buys/upgrades nodes, spends hash on the best thing |
+| `hacking.ts` | 45 GB | — | Buys programs, roots servers, leaves backdoors, weaken → grow → hack, upgrades home RAM |
+| `hacknet.ts` | 21 GB | — | Buys/upgrades nodes, spends hash on the best thing |
 | `contractRunner.ts` | 29 GB | — | Finds every `*.cct` on the network and solves it with 24 built-in solvers |
 | `contracts.ts` | 0 GB* | — | The solvers themselves (they make no API calls, so `dynamicImport` is safe) |
-| `factions.ts` | 54 GB | — | Work for factions, donate, buy augmentations |
-| `jobs.ts` | 18 GB | — | Applies for the highest-paying job across all 25 companies |
-| `crime.ts` | 42 GB | — | Picks the best crime by expected money/sec, shadow-chains faction reps |
-| `gang.ts` | 39 GB | SF3 | Recruits, assigns optimal tasks, buys weapons, ascends |
-| `bladeburner.ts` | 72 GB | SF4 / BN4 | City selection, contracts/ops, skill-point spending |
-| `corporation.ts` | 455 GB | SF12 | Self-managing corporation: divisions, offices, hires, materials, research |
-| `stock.ts` | 39 GB | SF8 | Tick-based trading with position sizing |
-| `stanek.ts` | 19 GB | SF11 | Greedy fragment packing with rotation, charges everything |
-| `sleeves.ts` | 41 GB | SF10 | Shock recovery → sync → stat-matched task per sleeve |
-| `go.ts` | 53 GB | SF14 | Plays Go using atari/liberty analysis, collects rewards |
-| `infiltration.ts` | 20 GB | SF13 | Ranks SP500 locations by expected value, infiltrates the best |
-| `darknet.ts` | 20 GB | BN10 | Harvests stasis links, probes neighbours, heartbleeds logs |
-| `share.ts` | 4 GB | — | Fills leftover RAM with `share()` for faction work |
+| `factions.ts` | 55 GB | — | Work for factions, donate, buy augmentations |
+| `jobs.ts` | 24 GB | — | Applies for the highest-paying job across all 25 companies |
+| `crime.ts` | 43 GB | — | Picks the best crime by expected money/sec, shadow-chains faction reps |
+| `gang.ts` | 46 GB | BN2 / SF2 | Recruits, assigns optimal tasks, buys weapons, ascends |
+| `bladeburner.ts` | 78 GB | BN6-7 / SF6 | City selection, contracts/ops, skill-point spending |
+| `corporation.ts` | 462 GB | BN3 / SF3 | Self-managing corporation: divisions, offices, hires, materials, research |
+| `stock.ts` | 45 GB | BN8 / SF8 | Tick-based trading with position sizing |
+| `stanek.ts` | 26 GB | BN13 / SF13 | Greedy fragment packing with rotation, charges everything |
+| `sleeves.ts` | 48 GB | BN10 / SF10 | Shock recovery → sync → stat-matched task per sleeve |
+| `go.ts` | 60 GB | BN14 / SF14 | Plays Go using atari/liberty analysis, collects rewards |
+| `infiltration.ts` | 27 GB | — | Ranks SP500 locations by expected value, infiltrates the best |
+| `darknet.ts` | 26 GB | BN15 / SF15 | Harvests stasis links, probes neighbours, heartbleeds logs |
+| `share.ts` | 6 GB | — | Fills leftover RAM with `share()` for faction work |
 
 \* `core.ts` is **statically** imported, so its API calls are added to every module that
 imports it. `contracts.ts` is the only `ns.dynamicImport()` in the suite, and that is safe
 only because it makes no API calls at all. Every module needs `core.ts`, `types.ts` and
 `contracts.ts` on the same server — `autobot.ts` `scp`s them there automatically.
 
-Total RAM if every module ran at once: **~959 GB** (with Source-File 4 installed). Without
+Total RAM if every module ran at once: **~1,060 GB** (with Source-File 4 installed). Without
 SF4 the Singularity API costs 16× more, so the Singularity-heavy modules need far more RAM
 than the table shows. In practice the orchestrator only starts the subsystems that are
 actually unlocked, and it refuses to start anything that would over-commit a server.
@@ -163,13 +163,14 @@ Every module can be run standalone. All of them accept `--dry-run` and `--loops 
 
 | Module | Extra flags |
 |---|---|
-| `hacking.ts` | `--interval 2000` |
+| `hacking.ts` | `--interval 2000`, `--no-backdoor`, `--backdoor-daemon` |
 | `hacknet.ts` | `--interval 2000`, `--max-nodes 200`, `--no-hashes` |
 | `contractRunner.ts` | `--loop`, `--interval 30000`, `--max 50`, `--host CSEC`, `--open-ports`, `--selftest` |
 | `factions.ts` | `--interval 2000`, `--install-augs` |
 | `jobs.ts` | `--companies ECorp,Phantasm` |
 | `crime.ts` | `--focus Robbery` |
 | `gang.ts` | `--interval 2000`, `--ascend-at 100000` |
+| `share.ts` | `--ignore-bladeburner` |
 | `corporation.ts` | `--divisions Software,Robotics` |
 | `stock.ts` | `--risk 0.5` |
 | `stanek.ts` | `--charge-every 5000` |
@@ -222,6 +223,12 @@ Two consequences worth knowing:
    That is exactly why every module here uses
    `import * as core from "./core.ts";` instead of `await ns.dynamicImport("./core.ts")`.
 
+Because `core.ts` is statically imported, its own API surface is added to *every* module.
+`node ramgap.mjs` reports it as **11.3 GB** (1.6 GB base + 9.7 GB of helpers). The Bladeburner
+work-conflict guards (`inBladeburner`, `getCurrentAction`, `isBusy`, `getOwnedAugmentations`)
+are 6.5 GB of that, which is why every module's `RAM_NEEDED` is 6-7 GB higher than the sum of
+its own calls.
+
 `node ramgap.mjs` replays both passes locally and fails if any script's dynamic charge can
 ever exceed its allocation.
 
@@ -248,7 +255,7 @@ breakdown. The big ones:
 | `ns.bladeburner.*` | 4 GB per call |
 | `ns.gang.*` | 2 GB per call |
 
-`corporation.ts` is the outlier at **455 GB** because the Corporation API has ~100
+`corporation.ts` is the outlier at **462 GB** because the Corporation API has ~100
 functions and each one is charged separately. It will only start once you have a server
 with that much RAM (a fully upgraded home, or a big server like `n0001` after
 `--open-ports` and RAM upgrades). The module prints a clear message and exits instead of
@@ -311,12 +318,200 @@ npm run enums
 
 ---
 
-## Bladeburner and crime
+## Subsystem access: "Must own a corporation."
 
-`ns.singularity.commitCrime()` cancels a running Bladeburner action ("Your Bladeburner
-action was cancelled because you started doing something else"). `crime.ts` therefore
-checks `ns.bladeburner.inBladeburner()` + `ns.bladeburner.getCurrentAction()` before
-committing a crime, and skips the commit while an operation is in progress.
+Enum validation is not the only runtime guard. Most subsystem APIs also check that the
+subsystem actually exists before doing anything, and **throw** if it does not:
+
+```ts
+// src/Corporation/ns_Corporation.ts
+function checkAccess(ctx, api) {
+  if (!Player.corporation) throw helpers.errorMessage(ctx, "Must own a corporation.");
+  if (api && !Player.corporation.unlocks.has(api))
+    throw helpers.errorMessage(ctx, "You do not have access to this API.");
+}
+```
+
+`hasCorporation()` and `canCreateCorporation()` are the only two Corporation calls that
+do **not** require a corporation. Everything else - `nextUpdate`, `getCorporation`,
+`getConstants`, `expandIndustry`, ... - throws when you do not own one.
+
+That is why `corporation.ts` never calls `nextUpdate()` in the "no corporation yet"
+branch. Owning Source-File 3 only *permits* creating a corporation; it does not create
+one. The loop now reads:
+
+```ts
+if (!ns.corporation.hasCorporation()) {
+  const check = ns.corporation.canCreateCorporation(true);   // "Success" | reason
+  if (check !== "Success") { ns.tprint(check); return; }
+  if (dryRun) { ns.print("[dry-run] would create a corporation"); return; }
+  if (!ns.corporation.createCorporation("Bitburner Industries", true)) return;
+}
+// a corporation is guaranteed to exist from here on
+await ns.corporation.nextUpdate();
+```
+
+The stock market has three stacked gates (`src/StockMarket.ts`):
+
+```ts
+// ungated: getConstants, hasWseAccount, hasTixApiAccess, has4SData, has4SDataTixApi
+// needs TIX:  getSymbols, getPrice, getPosition, getMaxShares, buyStock, sellStock,
+//             buyShort, sellShort, getOrders, getBonusTime, nextUpdate
+// needs 4S + TIX: getForecast, getVolatility
+```
+
+`stock.ts` therefore buys the WSE account, the TIX API and the 4S Market Data TIX API
+*before* it touches the market, and skips the tick when it cannot afford them:
+
+```ts
+if (!ns.stock.hasWseAccount()) {
+  if (ns.getPlayer().money < COST_WSE) { await ns.sleep(5000); continue; }
+  if (!ns.stock.purchaseWseAccount()) { await ns.sleep(5000); continue; }
+}
+// ... same for TIX, then:
+if (!ns.stock.has4SDataTixApi()) {
+  if (!ns.stock.purchase4SMarketDataTixApi()) return;   // 4S data disabled in bitnode options
+}
+const forecast = ns.stock.getForecast(sym);             // safe now
+```
+
+The same pattern applies everywhere: check the gate before using the API.
+
+| Subsystem | Gate to check first |
+|---|---|
+| Corporation | `ns.corporation.hasCorporation()` |
+| Gang | `ns.gang.inGang()` |
+| Bladeburner | `ns.bladeburner.inBladeburner()` |
+| Stock market | `ns.stock.hasWseAccount()`, then `ns.stock.hasTixApiAccess()`, then `ns.stock.has4SDataTixApi()` for `getForecast`/`getVolatility` |
+| Sleeves | `ns.sleeve.getNumSleeves() > 0` (needs SF10) |
+| Stanek | `ns.stanek.chargeFragment(...)`, gated by SF13 |
+
+`mocksuite.mjs` mirrors these guards, so a module that calls a gated API without the
+check fails in the offline test exactly as it does in the game.
+
+---
+
+## Backdoors: `installBackdoor()` has no target argument
+
+`ns.singularity.installBackdoor()` takes **no hostname**. It always backdoors
+`Player.getCurrentServer()` - the server the player is *connected to at that
+moment*. That single fact is the source of the most common Singularity crash:
+
+```text
+RUNTIME ERROR
+singularity.installBackdoor: Cannot backdoor daemon server because it is your server
+```
+
+`src/Hacking/netscriptCanHack.ts` runs `baseCheck()` before any hack/grow/weaken/
+backdoor, and it refuses three kinds of server:
+
+```ts
+function baseCheck(server, actionName) {
+  if (server.purchasedByPlayer)
+    return { res: false, msg: `Cannot ${actionName} ${server.hostname} server because it is your server` };
+  if (!server.hasAdminRights)
+    return { res: false, msg: `Cannot ${actionName} ${server.hostname} server because you do not have root access` };
+  return { res: true };
+}
+```
+
+So the old `hacking.ts` code
+
+```ts
+ns.singularity.connect(host);      // return value ignored
+await ns.singularity.installBackdoor();
+```
+
+crashed whenever `connect()` failed: the player stayed on their own machine, and
+`installBackdoor()` then ran against `home` (or any purchased cloud server), which
+is `purchasedByPlayer` and can never be backdoored. `core.rootedServers()` makes
+this worse - it returns *every* server we have root on, which includes home, cloud
+servers and hacknet nodes.
+
+`hacking.ts` now checks the gate before touching the API:
+
+```ts
+function backdoorBlocker(ns, host, allowDaemon) {
+  const server = ns.getServer(host);
+  if (!server) return "not reachable from our network";
+  if (host === "home") return "home is your own computer";
+  if (host === "darkweb") return "the darkweb cannot be backdoored";
+  if (host === "daemon" && !allowDaemon) return "World Daemon: ends the bitnode";
+  if (server.purchasedByPlayer) return "it is your own server, backdoor is impossible";
+  if (server.backdoorInstalled) return "backdoor already installed";
+  if (!ns.hasRootAccess(host)) return "no root access";
+  if (ns.getServerRequiredHackingLevel(host) > ns.getHackingLevel()) return "hacking level too low";
+  return null;
+}
+```
+
+and only calls `installBackdoor()` after `connect()` has actually succeeded,
+walking one hop through `home` or an already-backdoored server when the target is
+not adjacent:
+
+```ts
+if (!connectTo(ns, host)) { ns.print(`skipping backdoor on ${host}: not reachable`); continue; }
+try { await ns.singularity.installBackdoor(); }
+catch (err) { ns.print(`backdoor on ${host} failed: ${err.message}`); }   // never kills the script
+```
+
+`scripts/_backdoortest.ts` asserts all of these rules against the mock: owned
+server, unrooted server, level too low, the World Daemon, and a non-adjacent
+server. Run it with `node mocksuite.mjs _backdoortest --verbose`.
+
+---
+
+## Bladeburner vs. everything that uses `Player.currentWork`
+
+The game cancels a running Bladeburner action the moment the player starts *any*
+other work, unless the BladesSimulacrum augmentation is installed:
+
+`Bladeburner.process()` (paraphrased from `src/Bladeburner/Bladeburner.ts`) checks the
+player's work slot every tick:
+
+```ts
+// Bladeburner.process() - paraphrased
+if (Player.currentWork && !Player.hasAugmentation(AugmentationName.BladesSimulacrum, true)) {
+  this.cancelAction();          // action reset, automation turned off, dialog shown
+}
+```
+
+`Player.currentWork` is set by **company work, faction work, crimes, class work
+and `ns.share()`**. (`ns.singularity.isBusy()` is slightly broader - it also
+reports the Infiltration and BitVerse pages - so using it as the test is
+conservative.) So in BitNode 6/7 (or with Source-File 6/7) a Bladeburner
+operation and the rest of the suite fight for the same player.
+
+The suite handles it in five places:
+
+| Module | What it does |
+|---|---|
+| `crime.ts` | skips `commitCrime()` while the player's time is claimed (`core.workBladeburnerConflict()`) |
+| `jobs.ts` | skips `workForCompany()` while a Bladeburner action is running |
+| `factions.ts` | skips `workForFaction()` while a Bladeburner action is running |
+| `bladeburner.ts` | refuses to `startAction()` while the player is already working (`core.wouldCancelBladeburner()`) |
+| `share.ts` | idles instead of `share()` while a Bladeburner action is running; pass `--ignore-bladeburner` if you own BladesSimulacrum |
+
+`share.ts` deliberately does **not** import `core.ts`: it is meant to run on
+every server with spare RAM, and `core.ts` would add 11.3 GB to it. It probes
+`ns.bladeburner.inBladeburner()` (0 GB) and `getCurrentAction()` (1 GB) directly.
+
+`core.ts` exposes the shared predicates:
+
+```ts
+core.inBladeburner(ns);              // 0 GB
+core.bladeburnerBusy(ns);            // 1 GB
+core.hasBladesSimulacrum(ns);        // 5 GB
+core.wouldCancelBladeburner(ns);     // + 0.5 GB (singularity.isBusy)
+core.workBladeburnerConflict(ns);    // busy either way, no extra RAM
+```
+
+Verify the behaviour offline:
+
+```bash
+node mocksuite.mjs _bladeburnertest --verbose
+node mocksuite.mjs _bladeburnertest --blades-simulacrum --verbose
+```
 
 ---
 
@@ -351,11 +546,16 @@ node mocksuite.mjs --no-sf                  # no Source-Files: most modules skip
 node mocksuite.mjs --money 100              # broke player: corp/stock bail out
 node mocksuite.mjs crime --live             # actually call commitCrime/purchaseAugmentation
 node mocksuite.mjs crime --live --blade-action Operations Raid   # Bladeburner is busy
+node mocksuite.mjs stock --live             # buys WSE/TIX/4S, then trades
+node mocksuite.mjs stock --live --disable-4s  # 4S data disabled: stock.ts bails out cleanly
+node mocksuite.mjs --with-corp --with-stock # start with a corporation and full market access
+node mocksuite.mjs _backdoortest --verbose  # the installBackdoor access-gate test
 ```
 
-`--live` drops the `--dry-run` argument so the modules take their real code paths, and
+`--live` drops the `--dry-run` argument so the modules take their real code paths,
 `--blade-action <type> <name>` puts the Bladeburner division into a running action so the
-"crime cancels the Bladeburner action" guard is exercised.
+"crime cancels the Bladeburner action" guard is exercised, and by default the mock starts
+with **no corporation and no stock market access** so the subsystem guards are hit.
 
 A module is reported as `[ok]`, `[ok (loop budget reached)]` or `[FAIL: ...]`.
 
@@ -374,6 +574,7 @@ scripts/
   hacking.ts hacknet.ts factions.ts jobs.ts crime.ts gang.ts
   bladeburner.ts corporation.ts stock.ts stanek.ts sleeves.ts
   go.ts infiltration.ts darknet.ts share.ts
+  _backdoortest.ts    installBackdoor access-gate test (runs against the mock)
 
 mocksuite.mjs         fake ns API, runs the whole suite offline
 selftest.mjs          known-answer solver tests
@@ -406,6 +607,9 @@ c_*.ts                reference copies of official contract implementations
 | `0 solved`, contracts skipped | That contract type has no solver yet — the runner prints `No solver for: ...` at the start. |
 | Contract attempts exhausted | Use `--dry-run` first to verify answers before spending attempts. |
 | `Argument ... should be a ... enum member` | A hardcoded name is not in the game's enum. See [Names the game validates](#names-the-game-validates-why-nothing-is-hardcoded) and run `node enumcheck.mjs`. |
+| `Must own a corporation.` / `Must be in a gang.` / `Must be in the Bladeburner division.` | The module called a gated API before the subsystem existed. See [Subsystem access](#subsystem-access-must-own-a-corporation). |
+| `You don't have TIX API Access!` / `You don't have 4S Market Data TIX API Access!` | `stock.ts` needs the WSE account, the TIX API and the 4S Market Data TIX API bought before it can read forecasts. It now buys them first and skips the tick if it cannot afford them. |
+| `Cannot backdoor ... server because it is your server` | `installBackdoor()` has no target argument - it backdoors the server you are *connected to*. `hacking.ts` now filters owned servers and checks `connect()` before calling it. See [Backdoors](#backdoors-installbackdoor-has-no-target-argument). |
 | `Your Bladeburner action was cancelled` | `crime.ts` committed a crime while an operation was running. Run it with `--focus rep` on a sleeve, or let the guard skip the commit (it now does). |
 | Want to stop everything | `run autobot.ts --kill` |
 

@@ -40,7 +40,7 @@ import type { CityName, CorpIndustryName } from "./types";
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
 
-const RAM_NEEDED = 455;
+const RAM_NEEDED = 462;
 
 /** Industries worth opening, in order of how good their products are. */
 const INDUSTRY_ORDER: CorpIndustryName[] = [
@@ -84,18 +84,27 @@ export async function main(ns: NS): Promise<void> {
   for (let loop = 0; loop < loops; ++loop) {
     if (!ns.corporation.hasCorporation()) {
       const check = ns.corporation.canCreateCorporation(true);
-      if (check === "Success") {
-        if (dryRun) ns.print("[dry-run] would create a corporation");
-        else if (ns.corporation.createCorporation("Bitburner Industries", true)) {
-          ns.print("corporation created");
-        }
-      } else {
-        ns.print(`cannot create a corporation yet (${check})`);
+      if (check !== "Success") {
+        ns.tprint(`corporation.ts: cannot create a corporation (${check}). Exiting.`);
         return;
       }
-      await ns.corporation.nextUpdate();
-      continue;
+      if (dryRun) {
+        ns.print("[dry-run] would create a corporation");
+        // There is nothing to manage without a corporation, and every
+        // Corporation API except hasCorporation/canCreateCorporation -
+        // nextUpdate included - throws "Must own a corporation."
+        return;
+      }
+      if (!ns.corporation.createCorporation("Bitburner Industries", true)) {
+        ns.tprint("corporation.ts: createCorporation failed even though canCreateCorporation said Success. Exiting.");
+        return;
+      }
+      ns.print("corporation created");
     }
+
+    // From here on a corporation is guaranteed to exist, so the rest of the
+    // Corporation API is safe to call.
+    if (!ns.corporation.hasCorporation()) continue;
 
     const corp = ns.corporation.getCorporation();
     const funds = corp.funds;

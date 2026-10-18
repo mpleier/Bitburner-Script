@@ -16,7 +16,12 @@
  *   getAugmentationPrereq 5 | getAugmentationPrice 2.5 | getAugmentationRepReq 2.5
  *   purchaseAugmentation 5 | installAugmentations 5 | isBusy 0.5 | getPlayer 0.5
  *   getFavorToDonate 0.1
- *   => ~54 GB
+ *   + core.ts helpers: inBladeburner 0, getCurrentAction 1
+ *     (getOwnedAugmentations and isBusy are already listed above)
+ *   => 55 GB (ramgap.mjs computes the exact number)
+ *
+ * Bladeburner note: workForFaction() sets Player.currentWork, which cancels a
+ * running Bladeburner action unless BladesSimulacrum is installed.
  *
  * Usage
  *   run factions.ts
@@ -32,7 +37,7 @@
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
 
-const RAM_NEEDED = 54;
+const RAM_NEEDED = 55;
 
 /** Every faction name, taken from the enum so the spelling is always right. */
 function allFactions(ns: NS) {
@@ -84,6 +89,7 @@ export async function main(ns: NS): Promise<void> {
     if (best) {
       const workType = pickWorkType(ns, best.faction);
       if (dryRun) ns.print(`[dry-run] would work ${workType} for ${best.faction}`);
+      else if (core.workBladeburnerConflict(ns)) ns.print("Bladeburner action running - skipping faction work");
       else if (!ns.singularity.isBusy()) ns.singularity.workForFaction(best.faction, workType);
     }
 

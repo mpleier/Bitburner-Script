@@ -17,15 +17,18 @@
  *   getHackingLevel 0.05 | getHackTime 0.05 | getGrowTime 0.05 | getWeakenTime 0.05
  *   hack 0.1 | grow 0.15 | weaken 0.15
  *   hackAnalyze 1 | growthAnalyze 1 | weakenAnalyze 1
- *   nuke + 5 port openers 0.05 each | installBackdoor 2
+ *   nuke + 5 port openers 0.05 each | installBackdoor 2 | connect 2 | getServer 0.1
  *   upgradeHomeRam 3 | upgradeHomeCores 3 | getUpgradeHomeRamCost 1.5 | getUpgradeHomeCoresCost 1.5
  *   createProgram 5 | purchaseProgram 2 | purchaseTor 2
  *   getDarkwebPrograms 0.5 | getDarkwebProgramCost 0.5
- *   => ~39 GB. Run it on a server with at least 32 GB.
+ *   => ~45 GB (39 GB of hacking calls + 6.5 GB of core.ts helpers). Run it on a
+ *      server with at least 45 GB.
  *
  * Usage
  *   run hacking.ts
  *   run hacking.ts --interval 5000 --dry-run
+ *   run hacking.ts --no-backdoor          ; skip the backdoor step entirely
+ *   run hacking.ts --backdoor-daemon      ; allow backdooring the World Daemon (ends the bitnode)
  */
 
 // Bitburner injects its API typings as a global declaration file, so `NS`
@@ -37,7 +40,7 @@
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
 
-const RAM_NEEDED = 39;
+const RAM_NEEDED = 45;
 
 export async function main(ns: NS): Promise<void> {
   ns.clearLog();
@@ -46,6 +49,8 @@ export async function main(ns: NS): Promise<void> {
   const args = ns.args.map(String);
   const dryRun = args.includes("--dry-run");
   const interval = Number(flagOr(args, "--interval", 1000));
+  const noBackdoor = args.includes("--no-backdoor");
+  const backdoorDaemon = args.includes("--backdoor-daemon");
 
   const loops = core.maxLoops(args);
 
@@ -60,7 +65,7 @@ export async function main(ns: NS): Promise<void> {
   for (let loop = 0; loop < loops; ++loop) {
     ensurePrograms(ns, core, dryRun);
     const rooted = rootNetwork(ns, core, dryRun);
-    await installBackdoors(ns, core, dryRun);
+    if (!noBackdoor) await installBackdoors(ns, core, dryRun, backdoorDaemon);
     upgradeHome(ns, dryRun);
 
     const target = pickTarget(ns, rooted);
@@ -127,22 +132,77 @@ function rootNetwork(ns: NS, core: any, dryRun: boolean): string[] {
   return rooted;
 }
 
-/** Install a backdoor on every rooted server we are allowed to. */
-/** Install backdoors on every rooted server we can reach. */
-async function installBackdoors(ns: NS, core: any, dryRun: boolean): Promise<void> {
-  const level = ns.getHackingLevel();
+/**
+ * Servers that must never be backdoored by this script.
+ *
+ * ns.singularity.installBackdoor() takes NO hostname: it always backdoors the
+ * server the player is *currently connected to* (Player.getCurrentServer()).
+ * Two traps follow from that:
+ *   1. connect() can fail, leaving us on our own machine, and the game then
+ *      throws "Cannot backdoor <host> server because it is your server"
+ *      (src/Hacking/netscriptCanHack.ts -> baseCheck -> server.purchasedByPlayer).
+ *   2. core.rootedServers() includes every server we own (home, cloud servers,
+ *      hacknet nodes). All of them are purchasedByPlayer and can never be
+ *      backdoored, so they have to be filtered out before we try.
+ */
+function backdoorBlocker(ns: NS, host: string, allowDaemon: boolean): string | null {
+  const server = ns.getServer(host);
+  if (!server) return "not reachable from our network";
+  if (host === "home") return "home is your own computer";
+  if (host === "darkweb") return "the darkweb cannot be backdoored";
+  if (host === "daemon" && !allowDaemon) {
+    return "World Daemon: backdooring it ends the bitnode (pass --backdoor-daemon to allow it)";
+  }
+  if (server.purchasedByPlayer) return "it is your own server, backdoor is impossible";
+  if (server.backdoorInstalled) return "backdoor already installed";
+  if (!ns.hasRootAccess(host)) return "no root access";
+  if (ns.getServerRequiredHackingLevel(host) > ns.getHackingLevel()) return "hacking level too low";
+  return null;
+}
+
+/**
+ * Connect to `host`. If it is not adjacent to where we are standing, hop through
+ * home (always connectable) or through a server that already has a backdoor -
+ * backdoored servers are reachable from anywhere in the network.
+ */
+function connectTo(ns: NS, host: string): boolean {
+  if (ns.singularity.connect(host)) return true;
+  for (const hop of ns.scan(host)) {
+    if (hop === "home" || ns.getServer(hop).backdoorInstalled) {
+      if (ns.singularity.connect(hop) && ns.singularity.connect(host)) return true;
+    }
+  }
+  return false;
+}
+
+/** Install backdoors on every rooted foreign server we can actually reach. */
+async function installBackdoors(ns: NS, core: any, dryRun: boolean, allowDaemon: boolean): Promise<void> {
   for (const host of core.rootedServers(ns)) {
-    if (host === "home") continue;
-    if (ns.getServer(host).backdoorInstalled) continue;
-    if (ns.getServerRequiredHackingLevel(host) > level) continue;
+    const blocker = backdoorBlocker(ns, host, allowDaemon);
+    if (blocker) {
+      // "already installed" is the boring case, do not spam the log with it.
+      if (blocker !== "backdoor already installed") ns.print(`skipping backdoor on ${host}: ${blocker}`);
+      continue;
+    }
+
     if (dryRun) {
       ns.print(`[dry-run] would install a backdoor on ${host}`);
       continue;
     }
-    // installBackdoor works on the server the script is running on.
-    ns.singularity.connect(host);
-    await ns.singularity.installBackdoor();
-    ns.print(`backdoor on ${host}`);
+
+    // installBackdoor() has no target argument: it acts on the server we are
+    // connected to, so connect() must succeed before we call it.
+    if (!connectTo(ns, host)) {
+      ns.print(`skipping backdoor on ${host}: not reachable from our network position`);
+      continue;
+    }
+
+    try {
+      await ns.singularity.installBackdoor();
+      ns.print(`backdoor installed on ${host}`);
+    } catch (err) {
+      ns.print(`backdoor on ${host} failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 }
 

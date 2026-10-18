@@ -76,10 +76,8 @@ export async function main(ns: NS): Promise<void> {
     if (best) {
       if (dryRun) {
         ns.print(`[dry-run] best crime: ${best.crime} -> ${fmt(best.perSec)}/s (chance ${best.chance})`);
-      } else if (ns.singularity.isBusy()) {
-        ns.print("busy, skipping crime");
-      } else if (bladeburnerBusy(ns)) {
-        ns.print("Bladeburner is running an action, skipping crime (committing a crime cancels it)");
+      } else if (core.workBladeburnerConflict(ns)) {
+        ns.print("player's time is taken by a job or a Bladeburner action, skipping crime");
       } else {
         const result = ns.singularity.commitCrime(best.crime);
         ns.print(`${best.crime} took ${result} ms`);
@@ -105,20 +103,6 @@ function bestCrime(ns: NS, focus: string) {
   void focus; // "rep" focus would prefer Shadow rep; money is the default driver
   return best;
 }
-
-/**
- * Is the Bladeburner division busy? Committing a crime cancels a running
- * Bladeburner action, so crime.ts must not do that.
- *
- * inBladeburner() costs 0 GB and never throws (it just checks Player.bladeburner),
- * so it is the cheap gate; getCurrentAction() costs 1 GB and is only reached when
- * we are actually in the division.
- */
-function bladeburnerBusy(ns: NS): boolean {
-  if (!ns.bladeburner.inBladeburner()) return false;
-  return ns.bladeburner.getCurrentAction() != null;
-}
-
 
 /** Build the Shadow faction: earn rep in the four feeder factions, join, buy what they offer. */
 function shadowChain(ns: NS, dryRun: boolean): void {

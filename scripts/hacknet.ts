@@ -21,7 +21,7 @@
 import * as core from "./core.ts";
 
 /** GB of RAM Bitburner allocates for this script. */
-const RAM_NEEDED = 15;
+const RAM_NEEDED = 21;
 
 export async function main(ns: NS): Promise<void> {
   ns.clearLog();
