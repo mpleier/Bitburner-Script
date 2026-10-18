@@ -1,0 +1,119 @@
+function hack(ctx: NetscriptContext, _host: unknown, manual: boolean, opts: unknown): Promise<number> {
+  const ws = ctx.workerScript;
+  const { threads, stock, additionalMsec } = validateHGWOptions(ctx, opts);
+  const server = getNormalServer(ctx, _host);
+
+  // Calculate the hacking time
+  // This is in seconds
+  const hackingTime = calculateHackingTime(server, Player) + additionalMsec / 1000.0;
+
+  // No root access or skill level too low
+  const canHack = netscriptCanHack(server);
+  if (!canHack.res) {
+    throw errorMessage(ctx, canHack.msg || "");
+  }
+
+  log(
+    ctx,
+    () =>
+      `Executing on '${server.hostname}' in ${convertTimeMsToTimeElapsedString(
+        hackingTime * 1000,
+        true,
+      )} (t=${formatThreads(threads)})`,
+  );
+
+  return helpers.netscriptDelay(ctx, hackingTime * 1000).then(function () {
+    const hackChance = calculateHackingChance(server, Player);
+    const rand = Math.random();
+    let expGainedOnSuccess = calculateHackingExpGain(server, Player) * threads;
+    const expGainedOnFailure = expGainedOnSuccess / 4;
+    if (rand < hackChance) {
+      // Success!
+      const percentHacked = calculatePercentMoneyHacked(server, Player);
+      let maxThreadNeeded = Math.ceil(1 / percentHacked);
+      if (isNaN(maxThreadNeeded)) {
+        // Server has a 'max money' of 0 (probably). We'll set this to an arbitrarily large value
+        maxThreadNeeded = 1e6;
+      }
+
+      let moneyDrained = server.moneyAvailable * percentHacked * threads;
+
+      // Over-the-top safety checks
+      if (moneyDrained < 0) {
+        moneyDrained = 0;
+      }
+      if (moneyDrained > server.moneyAvailable) {
+        moneyDrained = server.moneyAvailable;
+      }
+
+      if (moneyDrained === 0) {
+        expGainedOnSuccess = expGainedOnFailure;
+      }
+
+      server.moneyAvailable -= moneyDrained;
+      if (server.moneyAvailable < 0) {
+        server.moneyAvailable = 0;
+      }
+
+      let moneyGained = moneyDrained * currentNodeMults.ScriptHackMoneyGain;
+      if (manual) {
+        moneyGained = moneyDrained * currentNodeMults.ManualHackMoney;
+      }
+
+      Player.gainMoney(moneyGained, "hacking");
+      ws.scriptRef.onlineMoneyMade += moneyGained;
+      Player.scriptProdSinceLastAug += moneyGained;
+      ws.scriptRef.recordHack(server.hostname, moneyGained, threads);
+      Player.gainHackingExp(expGainedOnSuccess);
+      if (manual) Player.gainIntelligenceExp(0.005);
+      ws.scriptRef.onlineExpGained += expGainedOnSuccess;
+      log(
+        ctx,
+        () =>
+          `Successfully hacked '${server.hostname}' for ${formatMoney(moneyGained)} and ${formatExp(
+            expGainedOnSuccess,
+          )} exp (t=${formatThreads(threads)})`,
+      );
+      server.fortify(ServerConstants.ServerFortifyAmount * Math.min(threads, maxThreadNeeded));
+      if (stock) {
+        influenceStockThroughServerHack(server, moneyDrained);
+      }
+      if (manual) {
+        server.backdoorInstalled = true;
+        // Manunally check for faction invites
+        Engine.Counters.checkFactionInvitations = 0;
+        Engine.checkCounters();
+      }
+      return moneyGained;
+    } else {
+      // Player only gains 25% exp for failure?
+      Player.gainHackingExp(expGainedOnFailure);
+      ws.scriptRef.onlineExpGained += expGainedOnFailure;
+      log(
+        ctx,
+        () =>
+          `Failed to hack '${server.hostname}'. Gained ${formatExp(expGainedOnFailure)} exp (t=${formatThreads(
+            threads,
+          )})`,
+      );
+      return 0;
+    }
+  });
+}
+
+function portHandle(ctx: NetscriptContext, _n: unknown): PortHandle {
+  const n = positiveInteger(ctx, "portNumber", _n);
+  if (n > CONSTANTS.NumNetscriptPorts) {
+    throw errorMessage(
+      ctx,
+      `Trying to use an invalid port: ${n}. Must be less or equal to ${CONSTANTS.NumNetscriptPorts}.`,
+    );
+  }
+  return new PortHandle(n as PortNumber);
+}
+
+function person(ctx: NetscriptContext, p: unknown): IPerson {
+  const fakePerson = {
+    hp: undefined,
+    exp: undefined,
+    mults:

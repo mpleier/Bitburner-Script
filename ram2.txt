@@ -1,0 +1,84 @@
+RamCostConstants = {
+  Base: 1.6,
+  Dom: 25,
+  CorporationInfo: 10,
+  CorporationAction: 20,
+  Max: 1024,
+  Hack: 0.1,
+  HackAnalyze: 1,
+  Grow: 0.15,
+  GrowthAnalyze: 1,
+  Weaken: 0.15,
+  WeakenAnalyze: 1,
+  Scan: 0.2,
+  RecentScripts: 0.2,
+  PortProgram: 0.05,
+  Run: 1.0,
+  Exec: 1.3,
+  Spawn: 2.0,
+  Scp: 0.6,
+  Kill: 0.5,
+  HasRootAccess: 0.05,
+  GetHostname: 0.05,
+  GetHackingLevel: 0.05,
+  GetServer: 0.1,
+  GetServerMaxRam: 0.05,
+  GetServerUsedRam: 0.05,
+  FileExists: 0.1,
+  IsRunning: 0.1,
+  Hacknet: 0.5,
+  HNUpgLevel: 0.4,
+  HNUpgRam: 0.6,
+  HNUpgCore: 0.8,
+  GetStock: 2.0,
+  BuySellStock: 2.5,
+  Round: 0.05,
+  ArbScript: 1.0,
+  GetScript: 0.1,
+  GetRunningScript: 0.3,
+  GetHackTime: 0.05,
+  GetFavorToDonate: 0.1,
+  CodingContractBase: 10,
+  SleeveBase: 4,
+  ClearTerminalCost: 0.2,
+  GetMoneySourcesCost: 1.0,
+
+  SingularityFn1: 2,
+  SingularityFn2: 3,
+  SingularityFn3: 5,
+
+  GangApiBase: 4,
+
+  BladeburnerApiBase: 4,
+
+  StanekWidth: 0.4,
+  StanekHeight: 0.4,
+  StanekCharge: 0.4,
+  StanekFragmentDefinitions: 0,
+  StanekPlacedFragments: 5,
+  StanekClear: 0,
+  StanekCanPlace: 0.5,
+  StanekPlace: 5,
+  StanekFragmentAt: 2,
+  StanekDeleteAt: 0.15,
+  StanekAcceptGift: 2,
+
+  InfiltrationCalculateDifficulty: 2.5,
+  InfiltrationCalculateRewards: 2.5,
+  InfiltrationGetInfiltrations: 15,
+
+  CycleTiming: 0,
+} as const;
+
+function SF4Cost(cost: number): () => number {
+  return () => {
+    if (Player.bitNodeN === 4) {
+      return cost;
+    }
+    const sf4 = Player.activeSourceFileLvl(4);
+    if (sf4 <= 1) {
+      return cost * 16;
+    }
+    if (sf4 === 2) {
+      return cost * 4;
+ 

@@ -1,0 +1,55 @@
+### CodingContractObject
+ng various data about the contract specified.
+   */
+  getContract(filename: string, host?: string): CodingContractObject;
+
+  /**
+   * Get the number of attempts remaining.
+   * @remarks
+   * RAM cost: 2 GB
+   *
+   * Get the number of tries remaining on the contract before it self-destructs.
+   *
+   * @param filename - Filename of the contract.
+   * @param host - Hostname/IP of the server containing the contract. Optional. Defaults to current server if not provided.
+   * @returns How many attempts are remaining for the contract.
+   */
+  getNumTriesRemaining(filename: string, host?: string): number;
+
+  /**
+   * Generate a dummy contract.
+   * @remarks
+   * RAM cost: 2 GB
+   *
+   * Generate a dummy contract on the current server with no reward. Used to test various algorithms.
+   *
+   * This function will return null and not generate a contract if the randomized contract name is the same as another
+   * contract's name or the host is offline.
+   *
+   * @param type - Type of contract to generate
+   * @param host - Hostname/IP of the server containing the contract. Optional. Defaults to the server the calling script is running on.
+   * @returns Filename of the contract.
+   */
+  createDummyContract(type: CodingContractName, host?: string): string | null;
+
+  /**
+   * List all contract types.
+   * @remarks
+   * RAM cost: 0 GB
+   */
+  getContractTypes(): CodingContractName[];
+}
+
+/**
+ * Cloud API
+ * @public
+ */
+export interface Cloud {
+  /**
+   * Get cost of purchasing a cloud server.
+   * @remarks
+   * RAM cost: 0.25 GB
+   *
+   * Returns the cost to purchase a cloud server with the 
+
+### getServerContracts

@@ -1,0 +1,21 @@
+openPort( -> NOT FOUND
+brutessh( -> brutessh("foodnstuff");    * ```    * @param host - Hostname/IP of the target server. Optional. Defaults to current server if not provided.    * @returns True if the player runs th
+ftpcrack( -> ftpcrack("foodnstuff");    * ```    * @param host - Hostname/IP of the target server. Optional. Defaults to current server if not provided.    * @returns True if the player runs th
+relaysmtp( -> relaysmtp("foodnstuff");    * ```    * @param host - Hostname/IP of the target server. Optional. Defaults to current server if not provided.    * @returns True if the player runs t
+httpworm( -> httpworm("foodnstuff");    * ```    * @param host - Hostname/IP of the target server. Optional. Defaults to current server if not provided.    * @returns True if the player runs th
+sqlinject( -> sqlinject("foodnstuff");    * ```    * @param host - Hostname/IP of the target server. Optional. Defaults to current server if not provided.    * @returns True if the player runs t
+nuke( -> nuke("foodnstuff");    * ```    * @param host - Hostname/IP of the target server. Optional. Defaults to current server if not provided.    * @returns True if the player runs the pr
+getServerContracts -> NOT FOUND
+solveContract -> NOT FOUND
+codingcontract -> codingcontract: number;   corporation: number;   crime: number;   gang: number;   gang_expenses: number;   hacking: number;   hacknet: number;   hacknet_expenses: number;   hospita
+dynamicImport -> dynamicImport("./scriptToImport.js");    *    script.log(ns, "Message from an imported script!")    * }    *    * ```    *    * File: scriptToImport.js    * ```js    * export async
+getScriptRam -> getScriptRam(script: string, host?: string): number;    /**    * Get the execution time of a hack() call.    * @remarks    * RAM cost: 0.05 GB    *    * When `hack` completes an am
+runScript -> NOT FOUND
+exec( -> exec() scripts on that server, or scp() files to it. (scp() *from* the server is always allowed.)    *    * Note that the charisma level on a server is not a requirement for authen
+terminate -> terminates the script, it does not have a return value.    *    * Running this function with 0 or fewer threads will cause a runtime error.    *    * @example    * ```js    * //The
+hasScript -> NOT FOUND
+ns.scan -> ns.scan("home"): ["n00dles", "joesguns"]: "home" is the root, so it does not have a parent node.    *    * ns.scan("n00dles"): ["home"]: "home" is the parent node of "n00dles".    
+share( -> share(): Promise<void>;    /**    * Share power has a multiplicative effect on the reputation gain rate of faction work.    *    * The multiplier is applied fully to Hacking Contra
+hacknet -> hacknet: number;   hacknet_expenses: number;   hospitalization: number;   infiltration: number;   sleeves: number;   stock: number;   total: number;   work: number;   servers: numb
+cloud -> cloud servers, hacknet servers) */   purchasedByPlayer: boolean;    /** Flag indicating whether this server has a backdoor installed by a player */   backdoorInstalled?: boolean;  
+singularity -> singularity.purchaseProgram(programName);    * if (!success) ns.tprint(`ERROR: Failed to purchase ${programName}`);    * ```    * @param programName - Name of program to purchase. 
