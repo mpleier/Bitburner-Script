@@ -45,6 +45,29 @@ export const PROGRAMS: string[] = [
   "Formulas.exe",
 ];
 
+/**
+ * The programs the darkweb actually sells, in the order we buy them: the five
+ * port openers first (they unlock servers), then the utilities.
+ *
+ * NUKE.exe is deliberately absent - the darkweb does not sell it, and the suite
+ * never calls ns.singularity.createProgram(): that starts a real work session on
+ * the player, which cancels any job/faction work/crime in progress and breaks
+ * Bladeburner automation. ns.nuke() simply returns false when we do not have
+ * NUKE.exe, so missing it is a soft failure, not a crash.
+ */
+export const DARKWEB_PROGRAMS: string[] = [
+  "BruteSSH.exe",
+  "FTPCrack.exe",
+  "relaySMTP.exe",
+  "HTTPWorm.exe",
+  "SQLInject.exe",
+  "DeepscanV1.exe",
+  "ServerProfiler.exe",
+  "AutoLink.exe",
+  "DeepscanV2.exe",
+  "Formulas.exe",
+];
+
 /** Port openers: program file name <-> the ns call that opens that port. */
 export const PORT_OPENERS: Array<{ file: string; open: (ns: NS, host: string) => boolean }> = [
   { file: "BruteSSH.exe", open: (ns, host) => ns.brutessh(host) },

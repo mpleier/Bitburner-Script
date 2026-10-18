@@ -19,7 +19,7 @@ That single command downloads 20 files from GitHub, picks the best server, and s
 | `autobot.ts` | 15 GB | — | Orchestrator: installs, plans, places, starts, monitors |
 | `core.ts` | 11.3 GB* | — | Shared helpers (BFS scan, rooting, formatting, Bladeburner/work conflict guards), statically imported by every module |
 | `types.ts` | 0 GB | — | Shared type definitions (type-only import, erased by the transpiler) |
-| `hacking.ts` | 45 GB | — | Buys programs, roots servers, leaves backdoors, weaken → grow → hack, upgrades home RAM |
+| `hacking.ts` | 35 GB | — | Buys programs on the darkweb, roots servers, leaves backdoors, weaken → grow → hack, upgrades home RAM |
 | `hacknet.ts` | 21 GB | — | Buys/upgrades nodes, spends hash on the best thing |
 | `contractRunner.ts` | 29 GB | — | Finds every `*.cct` on the network and solves it with 24 built-in solvers |
 | `contracts.ts` | 0 GB* | — | The solvers themselves (they make no API calls, so `dynamicImport` is safe) |
@@ -391,6 +391,48 @@ check fails in the offline test exactly as it does in the game.
 
 ---
 
+## Programs: buy them, never create them
+
+`hacking.ts` used to fill in missing programs with `ns.singularity.createProgram()`.
+That call does not "make" a program - in `src/Singularity.ts` it is:
+
+```ts
+Player.startWork(new CreateProgramWork({ programName, singularity: true }));
+if (focus) { Player.startFocusing(); Router.toPage(Page.Work); }
+return true;
+```
+
+so it takes over the player's work slot and opens the Work page. Every job, faction
+shift, crime and `share()` the other modules are running is cancelled, and Bladeburner
+automation is switched off. It also needs a hacking level that scales with
+Intelligence, and it costs 5 GB of RAM (80 GB without Source-File 4).
+
+Buying is instant and costs money only, so the suite now does this instead:
+
+```ts
+if (!core.subsystemAvailable(ns, "singularity")) return;                        // SF4 gate
+if (!core.tryCall(() => ns.singularity.purchaseTor(), false)) return;           // 100k router
+for (const program of core.DARKWEB_PROGRAMS) {
+  const cost = core.tryCall(() => ns.singularity.getDarkwebProgramCost(program), -1);
+  if (cost < 0) continue;                        // not sold on the darkweb
+  if (cost === 0) continue;                      // already owned
+  if (core.money(ns) < cost * 1.2) continue;     // keep a 20% buffer
+  core.tryCall(() => ns.singularity.purchaseProgram(program), false);
+}
+```
+
+Two consequences worth knowing:
+
+* **`NUKE.exe` is not on the darkweb.** It has to be created (hacking level 11) or
+  found on a server. `ns.nuke()` returns `false` when we do not have it, so the
+  rooting sweep just skips those servers; `hacking.ts` prints one line about it and
+  carries on.
+* **`getDarkwebProgramCost()` throws** for a program the darkweb does not sell, and
+  returns `-1` before TOR is bought. Both paths are wrapped in `core.tryCall`, so a
+  locked-out Singularity or an empty bank account is a log line, not a dead script.
+
+---
+
 ## Backdoors: `installBackdoor()` has no target argument
 
 `ns.singularity.installBackdoor()` takes **no hostname**. It always backdoors
@@ -550,11 +592,15 @@ node mocksuite.mjs stock --live             # buys WSE/TIX/4S, then trades
 node mocksuite.mjs stock --live --disable-4s  # 4S data disabled: stock.ts bails out cleanly
 node mocksuite.mjs --with-corp --with-stock # start with a corporation and full market access
 node mocksuite.mjs _backdoortest --verbose  # the installBackdoor access-gate test
+node mocksuite.mjs hacking --live --no-programs                    # owns nothing: buys everything on the darkweb
+node mocksuite.mjs hacking --live --no-programs --no-tor --money 50000  # cannot afford TOR: logs and carries on
 ```
 
 `--live` drops the `--dry-run` argument so the modules take their real code paths,
 `--blade-action <type> <name>` puts the Bladeburner division into a running action so the
-"crime cancels the Bladeburner action" guard is exercised, and by default the mock starts
+"crime cancels the Bladeburner action" guard is exercised, `--no-programs` / `--no-tor`
+start the player with no `.exe` files and no router (which is how the darkweb purchase
+path and its graceful failures are tested), and by default the mock starts
 with **no corporation and no stock market access** so the subsystem guards are hit.
 
 A module is reported as `[ok]`, `[ok (loop budget reached)]` or `[FAIL: ...]`.
@@ -610,6 +656,8 @@ c_*.ts                reference copies of official contract implementations
 | `Must own a corporation.` / `Must be in a gang.` / `Must be in the Bladeburner division.` | The module called a gated API before the subsystem existed. See [Subsystem access](#subsystem-access-must-own-a-corporation). |
 | `You don't have TIX API Access!` / `You don't have 4S Market Data TIX API Access!` | `stock.ts` needs the WSE account, the TIX API and the 4S Market Data TIX API bought before it can read forecasts. It now buys them first and skips the tick if it cannot afford them. |
 | `Cannot backdoor ... server because it is your server` | `installBackdoor()` has no target argument - it backdoors the server you are *connected to*. `hacking.ts` now filters owned servers and checks `connect()` before calling it. See [Backdoors](#backdoors-installbackdoor-has-no-target-argument). |
+| `No such exploit ('...') found on the darkweb!` | `getDarkwebProgramCost()` **throws** for anything the darkweb does not sell - `NUKE.exe` is not on it. `hacking.ts` only asks for `core.DARKWEB_PROGRAMS` and wraps the call in `core.tryCall`, so the suite never triggers this. See [Programs: buy them, never create them](#programs-buy-them-never-create-them). |
+| `You do not have the TOR router.` | Singularity functions are gated by Source-File 4 / BitNode 4, and the darkweb needs the 100k TOR router. `hacking.ts` checks both and logs a line instead of crashing. |
 | `Your Bladeburner action was cancelled` | `crime.ts` committed a crime while an operation was running. Run it with `--focus rep` on a sleeve, or let the guard skip the commit (it now does). |
 | Want to stop everything | `run autobot.ts --kill` |
 

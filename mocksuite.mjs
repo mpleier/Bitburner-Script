@@ -167,6 +167,13 @@ const PROGRAMS = new Set([
   "AutoLink.exe", "ServerProfiler.exe", "Formulas.exe",
 ]);
 
+/** What the darkweb actually sells (src/DarkWeb/DarkWebItems.ts). NUKE.exe is
+   deliberately absent: the darkweb never sells it. */
+const DARKWEB_ITEMS = new Set([
+  "BruteSSH.exe", "FTPCrack.exe", "relaySMTP.exe", "HTTPWorm.exe", "SQLInject.exe",
+  "DeepscanV1.exe", "DeepscanV2.exe", "AutoLink.exe", "ServerProfiler.exe", "Formulas.exe",
+]);
+
 /* -------------------------------------------------------------------------- */
 /* Stanek's Gift                                                              */
 /* -------------------------------------------------------------------------- */
@@ -485,6 +492,9 @@ function makeNs(args, host, opts) {
   /* Player.currentWork mirror. Bladeburner.process() cancels a running action
      whenever this is non-null and BladesSimulacrum is not installed. */
   let currentWork = null;
+  /* Player.hasTorRouter() mirror. The darkweb is unreachable without it, and
+     getDarkwebProgramCost() returns -1 (rather than throwing) before it is bought. */
+  let hasTor = opts.tor;
 
 
   const player = {
@@ -742,6 +752,14 @@ function makeNs(args, host, opts) {
   ];
 
 
+  /* Port openers are synchronous in the real API (defs.d.ts: brutessh(host):
+     boolean), and they throw when the program is not owned. */
+  const openWithProgram = (h, program) => {
+    if (!PROGRAMS.has(program)) throw new Error(`ns.${program.toLowerCase()}: You do not have ${program}`);
+    if (SERVERS[h]) SERVERS[h].openPorts = (SERVERS[h].openPorts ?? 0) + 1;
+    return true;
+  };
+
   const ns = {
     args,
     print,
@@ -784,13 +802,19 @@ function makeNs(args, host, opts) {
     hack: async (h, o = {}) => (SERVERS[h]?.money ?? 0) * 0.1,
     grow: async (h, o = {}) => 1000,
     weaken: async (h, o = {}) => 1,
-    nuke: async (h) => { if (SERVERS[h]) SERVERS[h].root = true; return true; },
-    brutessh: async (h) => true,
-    ftpcrack: async (h) => true,
-    relaysmtp: async (h) => true,
-    httpworm: async (h) => true,
-    sqlinject: async (h) => true,
-    openPort: async (h, p) => true,
+    nuke: (h) => {
+      // The game throws here when NUKE.exe is missing; the suite's guard()
+      // is what keeps the script alive through it.
+      if (!PROGRAMS.has("NUKE.exe")) throw new Error("ns.nuke: You do not have NUKE.exe");
+      if (SERVERS[h]) SERVERS[h].root = true;
+      return true;
+    },
+    brutessh: (h) => openWithProgram(h, "BruteSSH.exe"),
+    ftpcrack: (h) => openWithProgram(h, "FTPCrack.exe"),
+    relaysmtp: (h) => openWithProgram(h, "relaySMTP.exe"),
+    httpworm: (h) => openWithProgram(h, "HTTPWorm.exe"),
+    sqlinject: (h) => openWithProgram(h, "SQLInject.exe"),
+    openPort: (h, p) => true,
     exec: (file, h, threads, ...a) => {
       const free = (SERVERS[h]?.maxRam ?? 0) - (SERVERS[h]?.usedRam ?? 0);
       if (free < threads) return 0;
@@ -919,14 +943,32 @@ function makeNs(args, host, opts) {
       getCrimeChance: (crime) => 0.6,
       createProgram: (name) => { PROGRAMS.add(name); return true; },
       getHackingLevelRequirementOfProgram: (name) => 100,
-      purchaseTor: () => true,
-      getDarkwebPrograms: () => [
-        "DeepscanV1.exe", "DeepscanV2.exe", "AutoLink.exe", "ServerProfiler.exe",
-        "Formulas.exe", "BruteSSH.exe", "FTPCrack.exe", "relaySMTP.exe",
-        "HTTPWorm.exe", "SQLInject.exe", "NUKE.exe",
-      ],
-      getDarkwebProgramCost: (name) => 1_000_000,
-      purchaseProgram: (name) => { PROGRAMS.add(name); return true; },
+      purchaseTor: () => {
+        if (hasTor) return true;
+        if (player.money < 100_000) return false;
+        player.money -= 100_000;
+        hasTor = true;
+        return true;
+      },
+      getDarkwebPrograms: () => (hasTor ? [...DARKWEB_ITEMS] : []),
+      getDarkwebProgramCost: (name) => {
+        // src/Singularity.ts: -1 when TOR is missing, a thrown error for a
+        // program the darkweb does not sell, 0 when we already own it.
+        if (!hasTor) return -1;
+        if (!DARKWEB_ITEMS.has(String(name))) {
+          throw new Error(`singularity.getDarkwebProgramCost: No such exploit ('${name}') found on the darkweb!`);
+        }
+        return PROGRAMS.has(String(name)) ? 0 : 1_000_000;
+      },
+      purchaseProgram: (name) => {
+        if (!hasTor) return false;
+        if (!DARKWEB_ITEMS.has(String(name))) return false;
+        if (PROGRAMS.has(String(name))) return true;
+        if (player.money < 1_000_000) return false;
+        player.money -= 1_000_000;
+        PROGRAMS.add(String(name));
+        return true;
+      },
       getUpgradeHomeRamCost: () => 1_000_000,
       upgradeHomeRam: () => { SERVERS.home.maxRam *= 2; return true; },
       getUpgradeHomeCoresCost: () => 500_000,
@@ -1507,6 +1549,8 @@ function parseArgs(argv) {
     disable4SData: false,
     bladeAction: null,
     bladesSimulacrum: false,
+    tor: true,
+    noPrograms: false,
     sourceFiles: new Map([[2, 1], [3, 1], [4, 4], [6, 1], [8, 1], [9, 1], [10, 1], [13, 1], [14, 1], [15, 1]]),
   };
   for (let i = 0; i < argv.length; ++i) {
@@ -1522,6 +1566,8 @@ function parseArgs(argv) {
     else if (a === "--ram") opts.ram = Number(argv[++i] ?? 1024);
     else if (a === "--blade-action") opts.bladeAction = { type: argv[++i] ?? "Operations", name: argv[++i] ?? "Raid" };
     else if (a === "--blades-simulacrum") opts.bladesSimulacrum = true;
+    else if (a === "--no-tor") opts.tor = false;
+    else if (a === "--no-programs") opts.noPrograms = true;
     else if (a === "--no-sf") opts.sourceFiles = new Map();
     else if (a === "--sf") { const n = Number(argv[++i]); opts.sourceFiles.set(n, Number(argv[++i] ?? 1)); }
     else if (!a.startsWith("-")) opts.modules.push(a);
@@ -1533,6 +1579,7 @@ async function main() {
   const opts = parseArgs(process.argv.slice(2));
   ENUMS = parseEnums(path.join(process.cwd(), "defs.d.ts"));
   SERVERS.home.maxRam = opts.ram;
+  if (opts.noPrograms) PROGRAMS.clear();
 
   const targets = opts.modules.length > 0
     ? opts.modules.map((m) => (/\.[a-z]+$/i.test(m) ? m : `${m}.ts`))

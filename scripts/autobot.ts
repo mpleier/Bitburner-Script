@@ -66,7 +66,7 @@ interface Module {
  * by every module). `npm run ram` regenerates them from RamCostGenerator.ts.
  */
 const MODULES: Module[] = [
-  { file: "hacking.ts",        ram: 45,  subsystem: "hacking",      priority: 1,  threads: 1, args: [], note: "root servers, backdoors, weaken/grow/hack, home RAM" },
+  { file: "hacking.ts",        ram: 35,  subsystem: "hacking",      priority: 1,  threads: 1, args: [], note: "root servers, backdoors, weaken/grow/hack, home RAM" },
   { file: "hacknet.ts",        ram: 21,  subsystem: "hacknet",      priority: 2,  threads: 1, args: [], note: "buy/upgrade hacknet nodes, spend hash" },
   { file: "contractRunner.ts", ram: 29,  subsystem: "contracts",    priority: 3,  threads: 1, args: ["--loop"], note: "find and solve every coding contract" },
   { file: "factions.ts",       ram: 55,  subsystem: "factions",     priority: 4,  threads: 1, args: [], note: "work for factions, donate, buy augmentations" },

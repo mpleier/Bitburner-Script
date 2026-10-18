@@ -2,7 +2,7 @@
  * hacking.ts
  * ============================================================================
  * Automates the whole hacking pipeline:
- *   1. Make sure every port-opening program exists (create or buy on darkweb).
+ *   1. Buy every port-opening program on the darkweb (never create one).
  *   2. Root every server you can.
  *   3. Install backdoors.
  *   4. Run the optimal weaken -> grow -> hack cycle on the richest server.
@@ -19,10 +19,10 @@
  *   hackAnalyze 1 | growthAnalyze 1 | weakenAnalyze 1
  *   nuke + 5 port openers 0.05 each | installBackdoor 2 | connect 2 | getServer 0.1
  *   upgradeHomeRam 3 | upgradeHomeCores 3 | getUpgradeHomeRamCost 1.5 | getUpgradeHomeCoresCost 1.5
- *   createProgram 5 | purchaseProgram 2 | purchaseTor 2
+ *   purchaseProgram 2 | purchaseTor 2
  *   getDarkwebPrograms 0.5 | getDarkwebProgramCost 0.5
- *   => ~45 GB (39 GB of hacking calls + 6.5 GB of core.ts helpers). Run it on a
- *      server with at least 45 GB.
+ *   => ~35 GB (29 GB of hacking calls + 6.5 GB of core.ts helpers). Run it on a
+ *      server with at least 35 GB.
  *
  * Usage
  *   run hacking.ts
@@ -40,7 +40,7 @@
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
 
-const RAM_NEEDED = 45;
+const RAM_NEEDED = 35;
 
 export async function main(ns: NS): Promise<void> {
   ns.clearLog();
@@ -48,14 +48,14 @@ export async function main(ns: NS): Promise<void> {
 
   const args = ns.args.map(String);
   const dryRun = args.includes("--dry-run");
-  const interval = Number(flagOr(args, "--interval", 1000));
+  const interval = flagOr(args, "--interval", 1000);
   const noBackdoor = args.includes("--no-backdoor");
   const backdoorDaemon = args.includes("--backdoor-daemon");
 
   const loops = core.maxLoops(args);
 
   const host = ns.getHostname();
-  if (ns.getServerMaxRam(host) < RAM_NEEDED) {
+  if (core.tryCall(() => ns.getServerMaxRam(host), 0) < RAM_NEEDED) {
     ns.tprint(`hacking.ts needs ${RAM_NEEDED} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
     return;
   }
@@ -63,17 +63,52 @@ export async function main(ns: NS): Promise<void> {
   ns.print("=== hacking module ===");
 
   for (let loop = 0; loop < loops; ++loop) {
-    ensurePrograms(ns, core, dryRun);
-    const rooted = rootNetwork(ns, core, dryRun);
-    if (!noBackdoor) await installBackdoors(ns, core, dryRun, backdoorDaemon);
-    upgradeHome(ns, dryRun);
+    // Every step runs inside guard(): a server that vanished mid-scan, a darkweb
+    // call made before TOR is affordable, or a singularity function locked out by
+    // the current BitNode logs one line and the loop carries on. The script never
+    // dies, it just does less.
+    await guard(ns, "program shop", () => ensurePrograms(ns, core, dryRun, loop));
+    const rooted = (await guard(ns, "root sweep", () => rootNetwork(ns, core, dryRun)) as string[]) ?? [];
+    if (!noBackdoor) await guard(ns, "backdoors", () => installBackdoors(ns, core, dryRun, backdoorDaemon));
+    await guard(ns, "home upgrades", () => upgradeHome(ns, dryRun));
 
-    const target = pickTarget(ns, rooted);
-    if (target) await cycle(ns, target, core, dryRun);
+    const target = (await guard(ns, "target selection", () => pickTarget(ns, rooted)) as string | null) ?? null;
+    if (target) await guard(ns, `hack cycle on ${target}`, () => cycle(ns, target, core, dryRun));
     else ns.print("No hackable server yet - grinding hacking level.");
 
     await ns.sleep(interval);
   }
+}
+
+/**
+ * Run one step of the loop and turn any exception into a log line.
+ *
+ * Bitburner kills a script outright when main() throws, which is the worst
+ * possible outcome for a long-running automation: the process is gone and has to
+ * be started again by hand. Returning null lets the caller decide what to do
+ * with the missing value.
+ */
+async function guard(ns: NS, label: string, fn: () => unknown): Promise<unknown> {
+  try {
+    return await fn();
+  } catch (err) {
+    ns.print(`${label} failed: ${msg(err)}`);
+    return null;
+  }
+}
+
+/** ns.getServer() that returns null instead of throwing for a vanished host. */
+function safeServer(ns: NS, host: string): any {
+  try {
+    return ns.getServer(host);
+  } catch {
+    return null;
+  }
+}
+
+/** Short, printable form of whatever the game threw. */
+function msg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function flagOr(args: string[], name: string, fallback: number): number {
@@ -81,36 +116,76 @@ function flagOr(args: string[], name: string, fallback: number): number {
   return i >= 0 && i + 1 < args.length ? Number(args[i + 1]) : fallback;
 }
 
-/** Create or darkweb-buy every program we are missing. */
-function ensurePrograms(ns: NS, core: any, dryRun: boolean): void {
+/**
+ * Buy every program we are missing from the darkweb.
+ *
+ * ns.singularity.createProgram() is deliberately never called. In
+ * src/Singularity.ts it does not "make" a program: it calls Player.startWork()
+ * with a CreateProgramWork and (focus defaults to true) Player.startFocusing(),
+ * i.e. it takes over the player's work slot and opens the Work page. That
+ * cancels the company job / faction work / crime the other modules are running
+ * and switches Bladeburner automation off. Buying is instant and costs money
+ * only.
+ *
+ * Every call here can throw, so each one is wrapped:
+ *   - singularity functions are locked outside BitNode 4 without Source-File 4
+ *     (helpers.checkSingularityAccess throws);
+ *   - getDarkwebProgramCost() throws for a program the darkweb does not sell
+ *     (NUKE.exe is not on it) and returns -1 before TOR is bought.
+ * The module therefore degrades to "use whatever we already have" instead of
+ * crashing.
+ */
+function ensurePrograms(ns: NS, core: any, dryRun: boolean, loop: number): void {
   const owned = core.ownedPrograms(ns);
-  const missing = core.PROGRAMS.filter((p: string) => !owned.has(p));
+  const missing = core.DARKWEB_PROGRAMS.filter((p: string) => !owned.has(p));
   if (missing.length === 0) return;
 
-  const level = ns.getHackingLevel();
-  const cash = ns.getPlayer().money;
+  if (!core.subsystemAvailable(ns, "singularity")) {
+    ns.print(
+      `cannot shop on the darkweb: singularity needs Source-File 4 (bitnode ${core.bitnode(ns)})`,
+    );
+    return;
+  }
+
+  if (dryRun) {
+    for (const program of missing) ns.print(`[dry-run] would buy ${program}`);
+    return;
+  }
+
+  // purchaseTor() returns true when we already own the router, false when the
+  // 100k is out of reach. Without it the darkweb is unreachable.
+  if (!core.tryCall(() => ns.singularity.purchaseTor(), false)) {
+    ns.print("cannot shop on the darkweb: the TOR router costs 100k and we cannot afford it");
+    return;
+  }
 
   for (const program of missing) {
-    if (dryRun) {
-      ns.print(`[dry-run] would obtain ${program}`);
+    // cost < 0 -> not sold here / no TOR, cost === 0 -> we already own it.
+    const cost = core.tryCall(() => ns.singularity.getDarkwebProgramCost(program), -1);
+    if (cost < 0) {
+      ns.print(`skipping ${program}: not sold on the darkweb`);
+      continue;
+    }
+    if (cost === 0) continue;
+
+    const cash = core.money(ns);
+    // Keep a 20% buffer so a purchase never leaves us broke.
+    if (cash < cost * 1.2) {
+      ns.print(`skipping ${program}: ${core.fmt(cost)} but we only have ${core.fmt(cash)}`);
       continue;
     }
 
-    const reqLevel = ns.singularity.getHackingLevelRequirementOfProgram(program);
-    if (reqLevel <= level && ns.singularity.createProgram(program)) {
-      ns.print(`created ${program}`);
-      continue;
+    if (core.tryCall(() => ns.singularity.purchaseProgram(program), false)) {
+      ns.print(`bought ${program} for ${core.fmt(cost)}`);
+    } else {
+      ns.print(`could not buy ${program}`);
     }
+  }
 
-    if (!owned.has("DeepscanV1.exe") && !ns.singularity.purchaseTor()) {
-      ns.print("could not purchase TOR (needs 100k)");
-      return;
-    }
-
-    const cost = ns.singularity.getDarkwebProgramCost(program);
-    if (cost > 0 && cash >= cost * 1.2) {
-      if (ns.singularity.purchaseProgram(program)) ns.print(`bought ${program} for ${core.fmt(cost)}`);
-    }
+  // NUKE.exe is the one program the darkweb never sells, so say it once and move
+  // on: ns.nuke() returns false without it, which is a soft failure.
+  if (loop === 0 && !owned.has("NUKE.exe")) {
+    ns.print("NUKE.exe is not sold on the darkweb - it has to be created or found; nuke() will fail until we have it");
   }
 }
 
@@ -124,9 +199,16 @@ function rootNetwork(ns: NS, core: any, dryRun: boolean): string[] {
       ns.print(`[dry-run] could root ${host} (${ns.getServerNumPortsRequired(host)} ports)`);
       continue;
     }
-    if (core.rootServer(ns, host)) {
-      rooted.push(host);
-      ns.print(`rooted ${host}`);
+    // A server can disappear (or move) between the scan and the nuke, and
+    // ns.nuke()/ns.brutessh() return false rather than throwing when we lack the
+    // program or the ports. Either way, one bad host must not stop the sweep.
+    try {
+      if (core.rootServer(ns, host)) {
+        rooted.push(host);
+        ns.print(`rooted ${host}`);
+      }
+    } catch (err) {
+      ns.print(`rooting ${host} failed: ${msg(err)}`);
     }
   }
   return rooted;
@@ -146,7 +228,9 @@ function rootNetwork(ns: NS, core: any, dryRun: boolean): string[] {
  *      backdoored, so they have to be filtered out before we try.
  */
 function backdoorBlocker(ns: NS, host: string, allowDaemon: boolean): string | null {
-  const server = ns.getServer(host);
+  // getServer() throws for a host that is no longer on the network, so it is
+  // wrapped: no server info means we cannot safely backdoor it.
+  const server = safeServer(ns, host);
   if (!server) return "not reachable from our network";
   if (host === "home") return "home is your own computer";
   if (host === "darkweb") return "the darkweb cannot be backdoored";
@@ -166,13 +250,32 @@ function backdoorBlocker(ns: NS, host: string, allowDaemon: boolean): string | n
  * backdoored servers are reachable from anywhere in the network.
  */
 function connectTo(ns: NS, host: string): boolean {
-  if (ns.singularity.connect(host)) return true;
-  for (const hop of ns.scan(host)) {
-    if (hop === "home" || ns.getServer(hop).backdoorInstalled) {
-      if (ns.singularity.connect(hop) && ns.singularity.connect(host)) return true;
+  // connect() throws when singularity access is unavailable, so every call is
+  // guarded: a failed connection only means we skip this backdoor.
+  if (safeConnect(ns, host)) return true;
+
+  let hops: string[] = [];
+  try {
+    hops = ns.scan(host);
+  } catch {
+    return false;
+  }
+
+  for (const hop of hops) {
+    if (hop === "home" || safeServer(ns, hop)?.backdoorInstalled) {
+      if (safeConnect(ns, hop) && safeConnect(ns, host)) return true;
     }
   }
   return false;
+}
+
+/** ns.singularity.connect() that returns false instead of throwing. */
+function safeConnect(ns: NS, host: string): boolean {
+  try {
+    return ns.singularity.connect(host);
+  } catch {
+    return false;
+  }
 }
 
 /** Install backdoors on every rooted foreign server we can actually reach. */
@@ -201,30 +304,31 @@ async function installBackdoors(ns: NS, core: any, dryRun: boolean, allowDaemon:
       await ns.singularity.installBackdoor();
       ns.print(`backdoor installed on ${host}`);
     } catch (err) {
-      ns.print(`backdoor on ${host} failed: ${err instanceof Error ? err.message : String(err)}`);
+      ns.print(`backdoor on ${host} failed: ${msg(err)}`);
     }
   }
 }
 
 /** Buy home RAM/cores when the cost is a small fraction of our money. */
 function upgradeHome(ns: NS, dryRun: boolean): void {
-  const cash = ns.getPlayer().money;
+  // Locked out of singularity functions in this BitNode: nothing to do.
+  if (!core.subsystemAvailable(ns, "singularity")) return;
 
-  const ramCost = ns.singularity.getUpgradeHomeRamCost();
+  const cash = core.money(ns);
+
+  const ramCost = core.tryCall(() => ns.singularity.getUpgradeHomeRamCost(), Infinity);
   if (ramCost > 0 && cash > ramCost * 4) {
-    if (dryRun) ns.print(`[dry-run] would upgrade home RAM for ${core0(ramCost)}`);
-    else if (ns.singularity.upgradeHomeRam()) ns.print(`home RAM now ${ns.getServerMaxRam("home")} GB`);
+    if (dryRun) ns.print(`[dry-run] would upgrade home RAM for ${core.fmt(ramCost)}`);
+    else if (core.tryCall(() => ns.singularity.upgradeHomeRam(), false)) {
+      ns.print(`home RAM now ${core.tryCall(() => ns.getServerMaxRam("home"), 0)} GB`);
+    }
   }
 
-  const coreCost = ns.singularity.getUpgradeHomeCoresCost();
+  const coreCost = core.tryCall(() => ns.singularity.getUpgradeHomeCoresCost(), Infinity);
   if (coreCost > 0 && cash > coreCost * 6) {
-    if (dryRun) ns.print(`[dry-run] would upgrade home cores for ${core0(coreCost)}`);
-    else if (ns.singularity.upgradeHomeCores()) ns.print("home cores upgraded");
+    if (dryRun) ns.print(`[dry-run] would upgrade home cores for ${core.fmt(coreCost)}`);
+    else if (core.tryCall(() => ns.singularity.upgradeHomeCores(), false)) ns.print("home cores upgraded");
   }
-}
-
-function core0(n: number): string {
-  return n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n.toFixed(0);
 }
 
 /** Pick the server with the best expected money per second. */
@@ -256,7 +360,7 @@ function pickTarget(ns: NS, rooted: string[]): string | null {
 /** One weaken -> grow -> hack round on `target`, using every free thread. */
 async function cycle(ns: NS, target: string, core: any, dryRun: boolean): Promise<void> {
   const threads = core.availableThreads(ns, ns.getHostname());
-  const cores = ns.getServer(target).cpuCores;
+  const cores = safeServer(ns, target)?.cpuCores ?? 1;
 
   const maxMoney = ns.getServerMaxMoney(target);
   const minSec = ns.getServerMinSecurityLevel(target);
