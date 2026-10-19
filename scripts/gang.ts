@@ -74,7 +74,7 @@ export async function main(ns: NS): Promise<void> {
 
   // Outside BitNode 2 gangs only recruit you once karma is low enough (<= -54000).
   if (core.bitnode(ns) !== 2 && core.karma(ns) > -54000) {
-    logger.tlog(ns,
+    logger.tlogOnce(ns,
       `Gangs need karma <= -54000 outside BitNode 2 (current karma ${core.karma(ns)}). ` +
       "crime.ts drives karma down - let it run, or play BitNode 2.",
     );
@@ -91,17 +91,25 @@ export async function main(ns: NS): Promise<void> {
     }
 
     const gang = ns.gang.getGangInformation();
-    recruit(ns, gang, dryRun);
-    assignTasks(ns, gang, dryRun);
-    buyEquipment(ns, gang, dryRun);
-    ascend(ns, ascendAt, dryRun);
+    const recruits = recruit(ns, gang, dryRun);
+    const reassigned = assignTasks(ns, gang, dryRun);
+    const purchases = buyEquipment(ns, gang, dryRun);
+    const ascended = ascend(ns, ascendAt, dryRun);
     territoryWarfare(ns, gang, dryRun);
 
+    /* One line per cycle instead of one line per member, task and purchase. */
+    const done: string[] = [];
+    if (recruits) done.push(`${recruits} recruit${recruits > 1 ? "s" : ""}`);
+    if (reassigned) done.push(`${reassigned} task change${reassigned > 1 ? "s" : ""}`);
+    if (purchases.count) done.push(`${purchases.count} purchase${purchases.count > 1 ? "s" : ""} (${money0(purchases.spent)})`);
+    if (ascended) done.push(`${ascended} ascension${ascended > 1 ? "s" : ""}`);
+
     const members = ns.gang.getMemberNames().length;
-    logger.log(ns, 
+    logger.log(ns,
       `members ${members} | respect ${gang.respect.toFixed(1)} | ` +
         `territory ${(gang.territory * 100).toFixed(1)}% | ` +
-        `income ${core.fmt(gang.moneyGainRate)}/cycle | wanted ${gang.wantedLevel.toFixed(1)}`,
+        `income ${core.fmt(gang.moneyGainRate)}/cycle | wanted ${gang.wantedLevel.toFixed(1)}` +
+        (done.length ? ` | this cycle: ${done.join(", ")}` : ""),
     );
 
     // nextUpdate() burns the bonus time the gang has accumulated.
@@ -130,25 +138,31 @@ function createGang(ns: NS, core: any, dryRun: boolean): void {
   logger.log(ns, "could not create a gang - join one of the gang factions first");
 }
 
-/** Recruit as many members as respect allows. */
-function recruit(ns: NS, gang: any, dryRun: boolean): void {
+/** Recruit as many members as respect allows. Returns how many were added. */
+function recruit(ns: NS, gang: any, dryRun: boolean): number {
+  void gang;
   const members = ns.gang.getMemberNames().length;
-  if (members >= MAX_MEMBERS) return;
-  if (!ns.gang.canRecruitMember()) return;
+  if (members >= MAX_MEMBERS) return 0;
+  if (!ns.gang.canRecruitMember()) return 0;
 
   const available = ns.gang.getRecruitsAvailable();
   const needed = ns.gang.respectForNextRecruit();
-  if (available <= 0) return;
+  if (available <= 0) return 0;
 
+  let recruited = 0;
   for (let i = 0; i < available; ++i) {
     const name = `Member ${members + i + 1}`;
     if (dryRun) {
-      logger.log(ns, `[dry-run] would recruit ${name} (respect ${needed.toFixed(1)} needed)`);
+      if (logger.verbose(ns)) {
+        logger.log(ns, `[dry-run] would recruit ${name} (respect ${needed.toFixed(1)} needed)`);
+      }
+      recruited += 1;
       continue;
     }
-    if (ns.gang.recruitMember(name)) logger.log(ns, `recruited ${name}`);
+    if (ns.gang.recruitMember(name)) recruited += 1;
     else break;
   }
+  return recruited;
 }
 
 /**
@@ -156,11 +170,13 @@ function recruit(ns: NS, gang: any, dryRun: boolean): void {
  * With Formulas.exe we use the real game formulas; otherwise we fall back to a
  * weighted-stat heuristic that still gets close.
  */
-function assignTasks(ns: NS, gang: any, dryRun: boolean): void {
+function assignTasks(ns: NS, gang: any, dryRun: boolean): number {
   const hasFormulas = ns.ls("home", "Formulas.exe").length > 0;
   const tasks = ns.gang.getTaskNames();
   const stats: Record<string, any> = {};
   for (const t of tasks) stats[t] = ns.gang.getTaskStats(t);
+
+  let changed = 0;
 
   for (const name of ns.gang.getMemberNames()) {
     const member = ns.gang.getMemberInformation(name);
@@ -183,11 +199,14 @@ function assignTasks(ns: NS, gang: any, dryRun: boolean): void {
     if (best === member.task) continue;
 
     if (dryRun) {
-      logger.log(ns, `[dry-run] ${name}: ${member.task} -> ${best}`);
+      if (logger.verbose(ns)) logger.log(ns, `[dry-run] ${name}: ${member.task} -> ${best}`);
+      changed += 1;
       continue;
     }
-    if (ns.gang.setMemberTask(name, best)) logger.log(ns, `${name} assigned to ${best}`);
+    if (ns.gang.setMemberTask(name, best)) changed += 1;
   }
+
+  return changed;
 }
 
 /** Weighted stat contribution, normalised by task difficulty. */
@@ -208,7 +227,7 @@ function heuristicScore(member: any, task: any): number {
  * Buy the equipment with the best "relevant stat per dollar" for each member.
  * Only spend a slice of the bankroll on any single purchase.
  */
-function buyEquipment(ns: NS, gang: any, dryRun: boolean): void {
+function buyEquipment(ns: NS, gang: any, dryRun: boolean): { count: number; spent: number } {
   void gang;
   const cash = ns.getPlayer().money;
   const names = ns.gang.getEquipmentNames();
@@ -217,6 +236,9 @@ function buyEquipment(ns: NS, gang: any, dryRun: boolean): void {
   for (const name of names) {
     cache[name] = { cost: ns.gang.getEquipmentCost(name), stats: ns.gang.getEquipmentStats(name) };
   }
+
+  let count = 0;
+  let spent = 0;
 
   for (const memberName of ns.gang.getMemberNames()) {
     const member = ns.gang.getMemberInformation(memberName);
@@ -250,17 +272,27 @@ function buyEquipment(ns: NS, gang: any, dryRun: boolean): void {
     if (!best) continue;
 
     if (dryRun) {
-      logger.log(ns, `[dry-run] would buy ${best} for ${memberName} (${money0(cache[best].cost)})`);
+      if (logger.verbose(ns)) {
+        logger.log(ns, `[dry-run] would buy ${best} for ${memberName} (${money0(cache[best].cost)})`);
+      }
+      count += 1;
+      spent += cache[best].cost;
       continue;
     }
     if (ns.gang.purchaseEquipment(memberName, best)) {
-      logger.log(ns, `${memberName} bought ${best} for ${money0(cache[best].cost)}`);
+      count += 1;
+      spent += cache[best].cost;
+      if (logger.verbose(ns)) logger.log(ns, `${memberName} bought ${best} for ${money0(cache[best].cost)}`);
     }
   }
+
+  return { count, spent };
 }
 
 /** Ascend when the banked ascension points are worth the respect loss. */
-function ascend(ns: NS, ascendAt: number, dryRun: boolean): void {
+function ascend(ns: NS, ascendAt: number, dryRun: boolean): number {
+  let ascended = 0;
+
   for (const name of ns.gang.getMemberNames()) {
     const m = ns.gang.getMemberInformation(name);
     const points =
@@ -270,17 +302,26 @@ function ascend(ns: NS, ascendAt: number, dryRun: boolean): void {
     if (points < ascendAt) continue;
 
     if (dryRun) {
-      logger.log(ns, `[dry-run] would ascend ${name} (${points.toFixed(0)} ascension points)`);
+      if (logger.verbose(ns)) {
+        logger.log(ns, `[dry-run] would ascend ${name} (${points.toFixed(0)} ascension points)`);
+      }
+      ascended += 1;
       continue;
     }
+
     const result = ns.gang.ascendMember(name);
     if (result) {
-      logger.log(ns, 
+      ascended += 1;
+      // Rare and worth the respect hit, so it stays in the log even without
+      // --verbose; the summary line above already says how many happened.
+      logger.log(ns,
         `ascended ${name}: hack x${result.hack.toFixed(2)} str x${result.str.toFixed(2)} ` +
           `(-${result.respect.toFixed(1)} respect)`,
       );
     }
   }
+
+  return ascended;
 }
 
 /** Only fight for territory when we expect to win every clash. */
@@ -299,7 +340,7 @@ function territoryWarfare(ns: NS, gang: any, dryRun: boolean): void {
   if (gang.territoryWarfareEngaged === engage) return;
 
   if (dryRun) {
-    logger.log(ns, `[dry-run] would set territory warfare to ${engage}`);
+    if (logger.verbose(ns)) logger.log(ns, `[dry-run] would set territory warfare to ${engage}`);
     return;
   }
   ns.gang.setTerritoryWarfare(engage);

@@ -31,6 +31,15 @@ export async function main(ns: NS): Promise<void> {
   if (!text.startsWith("[")) throw new Error("log lines must start with a timestamp");
   if (!text.includes(ns.getHostname())) throw new Error("log lines must name the server they came from");
 
+  // tlogOnce(): the first call reaches the terminal, the second one only appends
+  // to the file. With --verbose the harness prints the log, so the phrase must
+  // appear exactly once as a [tprint] line.
+  logger.tlogOnce(ns, "a message that should only reach the terminal once");
+  logger.tlogOnce(ns, "a message that should only reach the terminal once");
+  if (ns.read(file).split("only reach the terminal once").length - 1 !== 2) {
+    throw new Error("logger.tlogOnce() must still append every call to the log file");
+  }
+
   // Rotation: 700 long lines must not push the file past the limit.
   const filler = "x".repeat(90);
   for (let i = 0; i < 700; ++i) logger.log(ns, `line ${i} ${filler}`);

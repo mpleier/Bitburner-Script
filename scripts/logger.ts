@@ -23,6 +23,10 @@
  *   --verbose      mirror the log to the terminal as well
  *   --print        alias for --verbose
  *   --no-log       keep everything on the terminal only
+ *
+ * Modules that manage hundreds of small actions (gang.ts, corporation.ts) print
+ * one summary line per cycle by default and only show every individual action
+ * when --verbose is passed.
  */
 
 // Bitburner injects its API typings as a global declaration file, so `NS`
@@ -111,6 +115,36 @@ export function tlog(ns: NS, ...parts: unknown[]): void {
   const text = join(parts);
   log(ns, text);
   ns.tprint(text);
+}
+
+/**
+ * Log a line and tprint it only the first time it is seen.
+ *
+ * autobot.ts restarts every module on each interval, so a "not ready yet"
+ * message would otherwise reach the terminal on every restart. The log file is
+ * the memory: once the exact text is in it, the message has already been shown.
+ * (After the log is trimmed past LOG_LIMIT the message can appear again, which
+ * is fine - that means a long time has passed.)
+ */
+export function tlogOnce(ns: NS, ...parts: unknown[]): void {
+  const text = join(parts);
+
+  // Check the log before appending: if the exact line is already in it, this
+  // message has been shown to the player once already.
+  let seen = false;
+  try {
+    seen = ns.read(logFile(ns)).includes(text);
+  } catch {
+    seen = false;
+  }
+
+  log(ns, text);
+  if (!seen) ns.tprint(text);
+}
+
+/** Did the player ask for the full detail? Used to hide per-action noise. */
+export function verbose(ns: NS): boolean {
+  return hasFlag(ns, "--verbose") || hasFlag(ns, "--print");
 }
 
 /** The last `lines` entries of the log as a string ("" when there is none). */

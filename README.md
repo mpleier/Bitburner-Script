@@ -189,8 +189,15 @@ Rules the logger follows:
   dropped, so a bot that runs for months cannot fill up your file list.
 - **`--verbose` (or `--print`) mirrors the log to the terminal** as it is written.
 - **`--no-log`** keeps the old behaviour: print to the terminal, write nothing.
+- **Busy modules summarise.** `gang.ts`, `corporation.ts` and `casino.ts` write one
+  line per cycle ("members 6 | respect 1200.0 | ... | this cycle: 6 recruits,
+  6 purchases (8.40K)") instead of one line per member, office, hire or hand. Pass
+  `--verbose` to get every individual action.
 - **Milestones and fatal errors still `tprint`.** `logger.tlog()` writes to the file
   *and* to the console, so "not enough RAM" / "corporation disabled" is never missed.
+  `logger.tlogOnce()` is the same but only reaches the console the first time the
+  message appears - useful for "not ready yet" lines, since `autobot.ts` restarts a
+  module every interval and would otherwise print them forever.
   `install.js` is deliberately terminal-only - it is the bootstrap you type by hand.
 - **Logging can never crash a module.** If the write throws, the line falls back to
   `ns.print()`.

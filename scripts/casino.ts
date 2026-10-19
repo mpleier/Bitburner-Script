@@ -459,10 +459,14 @@ function finishHand(
   const moneyAfter = core.money(ns);
   const action = policy.decideHand(state, outcome, bet, moneyBefore, moneyAfter, blackjack, opts.reloadAfterLosses);
 
-  logger.log(ns,
-    `casino: hand ${state.hands} ${outcome}${blackjack ? " (blackjack)" : ""} ` +
-    `${core.fmt(policy.casinoRoundDelta(outcome, bet, moneyBefore, moneyAfter, blackjack))} | net ${core.fmt(state.net)}`
-  );
+  // One line per hand is a lot of noise: without --verbose we only report a
+  // checkpoint every 25 hands, and reloads/bans always get their own line.
+  if (logger.verbose(ns) || state.hands % 25 === 0) {
+    logger.log(ns,
+      `casino: hand ${state.hands} ${outcome}${blackjack ? " (blackjack)" : ""} ` +
+      `${core.fmt(policy.casinoRoundDelta(outcome, bet, moneyBefore, moneyAfter, blackjack))} | net ${core.fmt(state.net)}`
+    );
+  }
 
   // Only worth a save if this win is the best the run has achieved so far.
   if (action === "save" && state.net >= state.peak) void saveGame(ns, doc, opts);
