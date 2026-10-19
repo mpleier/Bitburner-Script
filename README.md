@@ -97,8 +97,17 @@ run install.js
 `ns.wget()` (0 GB RAM) pulls every file straight from GitHub, so you never have to paste
 the solver code into the game. Re-running `install.js` is also how you **update** the suite.
 
-`install.js` is the one file the game cannot update by itself, so if you pasted it a long
-ago and it is missing a file (e.g. `logger.ts`), refresh the installer first:
+`install.js` updates **itself**: it is the one file the game cannot refresh by itself, so
+every run it downloads its own newest version from GitHub and, if the file changed, starts
+the fresh copy and lets that finish the install. One paste is all you ever need.
+
+```text
+run install.js              # refreshes install.js, then installs everything
+run install.js --no-update  # skip the self-refresh (offline, or a hand-edited copy)
+```
+
+If the download fails (no internet, GitHub blocked) the installer just carries on with the
+copy already on the server, and you can still refresh it by hand:
 
 ```text
 wget https://raw.githubusercontent.com/mpleier/Bitburner-Script/main/scripts/install.js install.js
@@ -115,6 +124,8 @@ connect n0006          # or: cd n0006
 cat autobot_log.txt
 run install.js --logs 30      # last 30 log lines; install.js searches every rooted
                               # server and prints which one the log came from
+                              # (ns.read() only sees the server the script runs on, so
+                              # a log living elsewhere is scp()'d over first)
 run install.js --status       # which suite scripts are running, where, and their RAM
 run autobot.ts --verbose      # mirror the log to the terminal as it happens
 ```
@@ -162,7 +173,8 @@ run autobot.ts --kill     # same, but autobot.ts itself needs 15 GB of RAM
 
 `install.js` accepts the same flags plus `--open-ports` (root everything you can),
 `--no-run` (install only), `--server n0006` (force where the bot runs), `--selftest`
-(one dry-run pass of the orchestrator), `--kill` (stop the whole suite from a small
+(one dry-run pass of the orchestrator), `--no-update` (do not refresh install.js itself),
+`--kill` (stop the whole suite from a small
 server - `install.js` only needs ~7 GB, `autobot.ts` needs 15 GB), `--logs N` (read
 the log without running anything) and `--status` (which suite scripts are running, on
 which server, how much RAM each costs, and where the log file is).
@@ -783,6 +795,8 @@ npm run fuzz                # 8400 randomized differential checks
 npm run mock              # every module against a fake ns API
 npm run suite             # same, 3 loops, verbose output
 npm run installer         # install.js against the fake ns, one run per flag
+                          # (includes the self-update: a stale install.js must
+                          # download itself and hand over to the fresh copy)
 npm run test              # all of the above
 ```
 
@@ -864,7 +878,7 @@ c_*.ts                reference copies of official contract implementations
 | `Dynamic RAM usage calculated to be greater than RAM allocation` | The script's declared budget is below what Bitburner actually allocates. Run `node ramgap.mjs` to see the real allocation of every module, then raise that module's `RAM_NEEDED`. This is also what happens if a module that calls the API is loaded through `ns.dynamicImport()`. |
 | `Not enough RAM` in a module | That module's header lists the exact requirement. Root a bigger server or upgrade home RAM. |
 | `Could not start autobot.ts` | `ns.exec()` returns `0` for three reasons, and the installer now prints which one applies: no root on the target, `autobot.ts` not on the target, or **not enough free RAM** - Bitburner allocates 14.15 GB for `autobot.ts`, so it needs a server with 15 GB free. Root a bigger server, kill what is running, or upgrade home RAM. |
-| `Cannot find module logger.ts`, or a module refuses to start | The in-game `install.js` is older than the repo, so it never downloaded `logger.ts` - which every module now imports statically. Refresh the installer and re-run it: `wget https://raw.githubusercontent.com/mpleier/Bitburner-Script/main/scripts/install.js install.js` then `run install.js`. |
+| `Cannot find module logger.ts`, or a module refuses to start | The in-game `install.js` is older than the repo, so it never downloaded `logger.ts` - which every module now imports statically. `install.js` refreshes itself from GitHub on every run, so just `run install.js` again (drop `--no-update` if you were using it). |
 | `Skipped loading player scripts during startup` | The game could not compile a script, usually because an imported file is missing. Check with `ls` that `core.ts`, `logger.ts` and `types.ts` are on the server, then re-run `install.js`. |
 | A script is still creating programs (`Creating a program FTPCrack.exe`) | An old copy of a module is still running somewhere. `run install.js --kill`, then `run install.js` again. See [Programs: buy them, never create them](#programs-buy-them-never-create-them). |
 | `createCorporation failed even though canCreateCorporation said Success` | Self-funding a corporation costs **$150 billion** (`costOfCreatingCorporation`), and `canCreateCorporation()` only checks SF3/BitNode - it never looks at your money. `corporation.ts` now checks the balance itself and prints the shortfall instead of this confusing line. Seed money is free but only legal in BitNode 3. |

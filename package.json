@@ -5,7 +5,7 @@
   "description": "Modular Bitburner automation suite: hacking, hacknet, coding contracts, factions, jobs, crime, gang, Bladeburner, corporation, stock market, Stanek's Gift, sleeves, Go, infiltration and Darknet, orchestrated by autobot.ts.",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "tsc --strict --target ES2022 --module commonjs --outDir build globals.d.ts scripts/contracts.ts scripts/contractRunner.ts",
+    "build": "tsc --strict --target ES2022 --module commonjs --outDir build globals.d.ts scripts/contracts.ts",
     "selftest": "npm run build && node selftest.mjs",
     "fuzz": "npm run build && node fuzz.mjs",
     "mock": "node mocksuite.mjs",

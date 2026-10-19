@@ -32,9 +32,15 @@
  *   --no-log                 print to the terminal instead of writing a log file
  *   --ref main               branch/tag of the repo to pull from
  *   --server n0006           force which server autobot.ts runs on
+ *   --no-update              do not refresh install.js itself (see below)
  *
- * If this installer itself is out of date (it is the one file the game cannot
- * update by itself), refresh it from the terminal:
+ * install.js updates ITSELF. It is the one file the game cannot refresh by itself
+ * (it is the bootstrap you pasted with nano), so every run it downloads its own
+ * newest version from GitHub and, if the file changed, hands the job over to the
+ * fresh copy. One paste is all you ever need.
+ *
+ * If the download fails (no internet, GitHub blocked, --no-update) the installer
+ * simply carries on with the copy already on the server. To refresh it by hand:
  *   wget https://raw.githubusercontent.com/mpleier/Bitburner-Script/main/scripts/install.js install.js
  *
  * RAM cost (GB), from the official RamCostGenerator:
@@ -45,10 +51,18 @@
  *   => ~7 GB, so it fits on an 8 GB home server.
  *   --logs and --status are read-only: they add only read (0 GB) and ps (0.2 GB),
  *   so they are safe to run at any point in a save.
+ *   The self-update costs nothing extra (wget 0 GB, read 0 GB), but the fresh
+ *   copy needs ~7 GB of free RAM, so it is started on the biggest rooted server
+ *   that has room - and if none does, the update is simply saved to disk for the
+ *   next run.
  */
 
 const REPO = "mpleier/Bitburner-Script";
 const DEFAULT_REF = "main";
+
+/** install.js's own filename and RAM cost, used by the self-update step. */
+const SELF = "install.js";
+const SELF_RAM = 7;
 
 /** Every file the suite needs, in download order. */
 const FILES = [
@@ -74,7 +88,14 @@ export async function main(ns) {
   const base = `https://raw.githubusercontent.com/${REPO}/${ref}/scripts/`;
   const here = ns.getHostname();
 
-  /* 0. Read-only conveniences, so you can inspect the bot without running it. */
+  /* 0. install.js is the bootstrap you pasted by hand, so it is the one file the
+     game cannot refresh by itself. Download the newest copy and, if it changed,
+     hand the rest of this run to the fresh version. */
+  if (!args.includes("--no-update") && !args.includes("--updated")) {
+    if (await refreshSelf(ns, base, here, args)) return;
+  }
+
+  /* 1. Read-only conveniences, so you can inspect the bot without running it. */
   if (args.includes("--logs")) {
     const n = Number(flag(args, "--logs") ?? 40);
     const found = findLog(ns, logNames(flag(args, "--log")));
@@ -83,7 +104,10 @@ export async function main(ns) {
       return;
     }
     const lines = found.text.split("\n").filter((l) => l.trim()).slice(-n);
-    ns.tprint(`${found.name} on ${found.host}: ${found.text.length} chars, showing the last ${lines.length}`);
+    ns.tprint(
+      `${found.name} on ${found.host}: ${found.text.length} chars, showing the last ${lines.length}` +
+        (found.copied ? ` (copied to ${here} to read it)` : ""),
+    );
     ns.tprint(lines.join("\n"));
     return;
   }
@@ -128,7 +152,7 @@ export async function main(ns) {
     return;
   }
 
-  /* 1. Download the whole suite onto the server this installer runs on. */
+  /* 2. Download the whole suite onto the server this installer runs on. */
   const downloaded = [];
   for (const file of FILES) {
     const url = base + file;
@@ -141,10 +165,10 @@ export async function main(ns) {
     ns.print(`downloaded ${file} (${ref})`);
   }
 
-  /* 2. Optional: open ports / NUKE so hacking.ts has something to do. */
+  /* 3. Optional: open ports / NUKE so hacking.ts has something to do. */
   if (args.includes("--open-ports")) openPorts(ns);
 
-  /* 3. Pick the biggest rooted server with enough free RAM for the orchestrator. */
+  /* 4. Pick the biggest rooted server with enough free RAM for the orchestrator. */
   const target = forcedServer ?? bestHost(ns, here);
 
   if (target !== here) {
@@ -152,7 +176,7 @@ export async function main(ns) {
     ns.print(`copied ${downloaded.length} files -> ${target}`);
   }
 
-  /* 4. Make sure every file really landed. logger.ts is the one an old
+  /* 5. Make sure every file really landed. logger.ts is the one an old
      install.js does not know about, and without it every module fails to load
      ("Cannot find module logger.ts"). */
   const present = new Set(ns.ls(target, ".ts"));
@@ -186,7 +210,7 @@ export async function main(ns) {
     return;
   }
 
-  /* 5. Start the orchestrator, forwarding every flag autobot understands.
+  /* 6. Start the orchestrator, forwarding every flag autobot understands.
      `--selftest` runs it for a single dry-run loop so you can see the plan
      before the suite actually does anything. */
   const autobotArgs = args.includes("--selftest")
@@ -211,6 +235,58 @@ export async function main(ns) {
   }
 }
 
+/**
+ * install.js is the bootstrap you paste with nano, so it is the one file the game
+ * cannot refresh by itself. Download the newest copy; if it differs from the one
+ * running, start the fresh copy (marked --updated so it does not do this again)
+ * and let it finish the job.
+ *
+ * Returns true when a new instance of install.js took over, in which case the
+ * caller must stop - the work is already being done by the fresh copy.
+ */
+async function refreshSelf(ns, base, here, args) {
+  let before = "";
+  try {
+    before = ns.read(SELF);
+  } catch {
+    ns.print("could not read install.js - skipping the self-update");
+    return false;
+  }
+
+  if (!(await ns.wget(base + SELF, SELF, here))) {
+    ns.print("could not download the latest install.js - using the copy already on this server");
+    return false;
+  }
+
+  const after = ns.read(SELF);
+  if (after === before) {
+    ns.print(`install.js is already up to date (${after.length} chars)`);
+    return false;
+  }
+
+  ns.tprint(`install.js updated itself: ${before.length} -> ${after.length} chars`);
+
+  // The instance running right now is already loaded in memory and still holds
+  // its ~7 GB, so the fresh copy has to start where there is room for it.
+  const host = bestHost(ns, here, SELF_RAM);
+  if (host !== here && !ns.scp(SELF, host, here)) {
+    ns.tprint(`Could not copy install.js to ${host}. Run install.js again to use the new version.`);
+    return false;
+  }
+
+  const pid = ns.exec(SELF, host, 1, ...args, "--updated");
+  if (pid === 0) {
+    ns.tprint(
+      `The updated install.js could not start on ${host} (needs ${SELF_RAM} GB free). ` +
+        "The new version is saved on disk - run install.js again to use it.",
+    );
+    return false;
+  }
+
+  ns.tprint(`Continuing with the updated install.js on ${host} (pid ${pid})`);
+  return true;
+}
+
 /** Every server reachable from `from` by ns.scan(), as a Set. */
 function reachable(ns, from) {
   const seen = new Set();
@@ -230,20 +306,34 @@ function logNames(value) {
   return /\.(txt|json|css)$/i.test(name) ? [name] : [`${name}.txt`, name];
 }
 
-/** Each server keeps its own log file, so search every rooted server for it. */
+/**
+ * Each server keeps its own log file, so search every rooted server for it.
+ * ns.read() only sees files on the server this script is running on, so a log
+ * living on another server is copied over with scp() before reading it.
+ */
 function findLog(ns, names) {
+  const here = ns.getHostname();
+
   for (const host of reachable(ns)) {
     if (!ns.hasRootAccess(host)) continue;
+
     for (const name of names) {
       let text = "";
       try {
-        text = ns.read(name, host);
+        if (host !== here) {
+          // scp() keeps the original filename, so only copy when this server has
+          // no log of that name - never overwrite a log the player is reading.
+          if (ns.read(name)) continue;
+          if (!ns.scp(name, here, host)) continue;
+        }
+        text = ns.read(name);
       } catch {
         continue;
       }
-      if (text && text.trim()) return { host, name, text };
+      if (text && text.trim()) return { host, name, text, copied: host !== here };
     }
   }
+
   return null;
 }
 
@@ -271,7 +361,7 @@ function openPorts(ns) {
 }
 
 /** BFS over ns.scan(); returns the rooted server with the most FREE RAM. */
-function bestHost(ns, fallback) {
+function bestHost(ns, fallback, ram = AUTOBOT_RAM) {
   let best = null;
   let bestFree = 0;
 
@@ -289,7 +379,7 @@ function bestHost(ns, fallback) {
 
     // Free RAM, not total RAM: scripts already running there have to fit too.
     const free = server.maxRam - (server.usedRam ?? 0);
-    if (free >= AUTOBOT_RAM && free > bestFree) {
+    if (free >= ram && free > bestFree) {
       best = host;
       bestFree = free;
     }
@@ -311,7 +401,8 @@ function killSuite(ns) {
     for (const p of procs) {
       if (!FILES.includes(p.filename)) continue;
       try {
-        if (ns.kill(p.pid, host)) killed += 1;
+        // PIDs are unique across every server, so ns.kill(pid) needs no host.
+        if (ns.kill(p.pid)) killed += 1;
       } catch {
         /* the process is already gone */
       }
@@ -333,6 +424,8 @@ function forwarded(args) {
     // installer-only conveniences: autobot.ts has its own --logs/--kill/--status,
     // and running both would just print the same thing twice.
     if (a === "--logs" || a === "--kill" || a === "--status") continue;
+    // self-update bookkeeping - autobot.ts would choke on these.
+    if (a === "--no-update" || a === "--updated") continue;
     out.push(a);
   }
   return out;
