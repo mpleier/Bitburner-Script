@@ -866,8 +866,13 @@ let casinoWinnings = opts.casinoWinnings ?? 0;
     getHostname: () => host,
     scan: (h = host) => CONNECTIONS[h] ?? [],
     ls: (h = host, filter = "") => {
-      const all = ["share.js", "hack.js", ...MODULES, "contracts.ts", "types.ts",
-        ...contracts.map((c) => c.file), ...PROGRAMS];
+      // Files this server has written show up in ls() too, exactly like in the
+      // game - that is how a module finds the marker another run left behind
+      // (casino.ts's casino_banned.txt).
+      const all = [...new Set([
+        "share.js", "hack.js", ...MODULES, "contracts.ts", "types.ts",
+        ...contracts.map((c) => c.file), ...PROGRAMS, ...Object.keys(files),
+      ])];
       return filter ? all.filter((f) => f.toLowerCase().endsWith(filter.toLowerCase())) : all;
     },
     getServer: (h) => SERVERS[h] ?? null,
@@ -1775,6 +1780,70 @@ async function checkCasinoPolicy() {
     saveSleepMs: 10, clickSleepMs: 5, findSleepMs: 0, maxRounds: 10, reloadAfterLosses: 10,
   }), null);
 
+  // Getting kicked out for cheating
+  expect("ban modal text", policy.isBanText("Alright cheater get out of here"), true);
+  expect("ban text is case-insensitive", policy.isBanText("You are BANNED from the casino"), true);
+  expect("ordinary table text is not a ban", policy.isBanText("Count: 17  Dealer: 7"), false);
+  expect("empty text is not a ban", policy.isBanText(""), false);
+  expect("winnings at the limit ban", policy.isBannedByWinnings(policy.CASINO_BAN_THRESHOLD), true);
+  expect("winnings below the limit do not", policy.isBannedByWinnings(policy.CASINO_BAN_THRESHOLD - 1), false);
+  expect("NaN winnings do not ban", policy.isBannedByWinnings(NaN), false);
+
+  return failures;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  The ban: once the casino kicks us out, nothing may restart it              */
+/* -------------------------------------------------------------------------- */
+
+async function checkCasinoBan() {
+  const failures = [];
+  const world = {
+    money: 1e9,
+    ram: 1024,
+    bitnode: 10,
+    tor: true,
+    casinoWinnings: 1e10,
+    sourceFiles: new Map([[2, 1], [3, 1], [4, 4], [6, 1], [8, 1], [9, 1], [10, 1], [13, 1], [14, 1], [15, 1]]),
+  };
+
+  /* 1. casino.ts on its own: it must refuse to play and record the kick-out. */
+  const ns = makeNs(["--dry-run"], "home", world);
+  await runModule("casino.ts", ns, false);
+  const log = ns.log.join("\n");
+  if (!/kicked out/i.test(log)) failures.push("casino.ts did not report the kick-out");
+  if (!ns.read("casino_banned.txt")) failures.push("casino.ts did not write casino_banned.txt");
+
+  /* 2. A run that only has the note (the winnings were undone by a reload)
+     must still refuse to play. */
+  const ns2 = makeNs(["--dry-run"], "home", { ...world, casinoWinnings: 0 });
+  ns2.write("casino_banned.txt", "casino banned: the casino kicked us out for cheating\n", "w");
+  await runModule("casino.ts", ns2, false);
+  if (!/closed to us/i.test(ns2.log.join("\n"))) failures.push("casino.ts ignored casino_banned.txt");
+
+  /* 3. autobot.ts must not schedule casino.ts, and the five modules the casino
+     would mute for the focus conflict must go back to work. */
+  const ns3 = makeNs(["--dry-run", "--loops", "1"], "home", world);
+  await runModule("autobot.ts", ns3, false);
+  const plan = ns3.log.join("\n");
+  if (!/casino\.ts\s+skipped: the casino kicked us out for cheating/.test(plan)) {
+    failures.push("autobot.ts did not block casino.ts after the ban");
+  }
+  if (/focus conflict: the casino drives the UI/.test(plan)) {
+    failures.push("autobot.ts still muted the focus modules although the casino is closed");
+  }
+
+  /* 4. With no ban, the casino is scheduled and the mute still happens. */
+  const ns4 = makeNs(["--dry-run", "--loops", "1"], "home", { ...world, casinoWinnings: 0 });
+  await runModule("autobot.ts", ns4, false);
+  const normal = ns4.log.join("\n");
+  if (/casino\.ts\s+skipped: the casino kicked us out/.test(normal)) {
+    failures.push("autobot.ts blocked the casino without a ban");
+  }
+  if (!/focus conflict: the casino drives the UI/.test(normal)) {
+    failures.push("autobot.ts lost the focus-conflict mute for a normal casino run");
+  }
+
   return failures;
 }
 
@@ -1791,6 +1860,15 @@ async function main() {
     process.exitCode = 1;
   } else {
     console.log("casino-policy unit checks: all passed");
+  }
+
+  const banFailures = await checkCasinoBan();
+  if (banFailures.length) {
+    console.log(`casino ban checks: ${banFailures.length} failure(s)`);
+    for (const failure of banFailures) console.log(`  ${failure}`);
+    process.exitCode = 1;
+  } else {
+    console.log("casino ban checks: all passed (a kick-out stops casino.ts and the scheduler)");
   }
 
   const targets = opts.modules.length > 0

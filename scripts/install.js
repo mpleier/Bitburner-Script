@@ -74,8 +74,8 @@ const FILES = [
   "casino.ts", "casino-policy.ts",
 ];
 
-/** autobot.ts is allocated 14.15 GB by Bitburner (its own ns calls + core.ts). */
-const AUTOBOT_RAM = 15;
+/** autobot.ts is allocated 15.15 GB by Bitburner (its own ns calls + core.ts). */
+const AUTOBOT_RAM = 16;
 
 export async function main(ns) {
   ns.clearLog();

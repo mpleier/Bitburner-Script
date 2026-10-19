@@ -28,6 +28,28 @@ export const CASINO_SEED_MONEY = 300_000;
 /** Total casino winnings after which Iker Molina kicks us out for good. */
 export const CASINO_BAN_THRESHOLD = 1e10;
 
+/**
+ * The note casino.ts writes the moment the house throws us out. Blackjack has no
+ * API, so this file is how "we have been banned" survives to the rest of the
+ * suite: casino.ts reads it on the next run and autobot.ts reads it before it
+ * decides whether to schedule casino.ts at all.
+ */
+export const CASINO_BAN_MARKER = "casino_banned.txt";
+
+/**
+ * Every wording the casino has used to throw us out. Matched case-insensitively
+ * against the text on screen, so a game update that rewords the modal does not
+ * leave the bot playing on in a casino that has already banned it.
+ */
+export const BAN_TEXTS = [
+  "Alright cheater get out of here",
+  "cheater",
+  "get out of here",
+  "you are banned",
+  "banned from the casino",
+  "kicked out",
+];
+
 /** Fraction of the bankroll we are willing to put on one hand. */
 export const WAGER_FRACTION = 0.9;
 
@@ -62,6 +84,31 @@ export const XPATH = {
   unfocus: "//button[text()='Do something else simultaneously']",
   terminal: "//div[(@role = 'button') and (contains(., 'Terminal'))]",
 };
+
+/* -------------------------------------------------------------------------- */
+/*  Being kicked out                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * True when a piece of UI text is the casino throwing us out. Kept deliberately
+ * loose: the modal wording is not part of the API contract, so matching any of
+ * the known phrases is safer than one exact XPath.
+ */
+export function isBanText(text: string): boolean {
+  const lower = String(text ?? "").toLowerCase();
+  if (!lower) return false;
+  return BAN_TEXTS.some((phrase) => lower.includes(phrase.toLowerCase()));
+}
+
+/**
+ * True when the game's own winnings counter has passed the ban threshold. This
+ * is the only ban signal the API exposes
+ * (ns.getMoneySources().sinceInstall.casino).
+ */
+export function isBannedByWinnings(casinoWinnings: number): boolean {
+  const winnings = Number(casinoWinnings);
+  return Number.isFinite(winnings) && winnings >= CASINO_BAN_THRESHOLD;
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Option validation                                                          */

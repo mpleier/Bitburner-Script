@@ -17,9 +17,13 @@
  *   2. It runs by default: autobot.ts turns it off with --no-casino.
  *   3. The house bans us after ~10 billion in winnings. After that there is
  *      nothing left to automate.
+ *   4. When the casino kicks us out for cheating, casino.ts writes
+ *      casino_banned.txt on its server and exits. Every later run - and
+ *      autobot.ts's scheduler - reads that note and leaves the casino alone,
+ *      so the module stops instead of being restarted every interval.
  *
  * RAM cost (GB): base 1.6 + core.ts 9.7 + logger.ts 0.05
- *   + ps 0.2 | getPlayer 0.5 | getMoneySources 0.5
+ *   + ps 0.2 | getPlayer 0.5 | getMoneySources 0.5 | ls 0.05
  *   + singularity.travelToCity 2 | goToLocation 2 | getCurrentWork 2
  *   + commitCrime 2 | getCrimeStats 2 | getCrimeChance 2
  *   + getServerMaxRam 0.05 | sleep/print/write 0
@@ -95,6 +99,17 @@ export async function main(ns: NS): Promise<void> {
 
   logger.log(ns, "=== casino module ===");
 
+  /* The house throws us out once. If it already has - in the UI, in the game's
+     own winnings counter, or in the note a previous run left behind - there is
+     nothing left to automate, and we must not be restarted every interval. */
+  const ban = banReason(ns);
+  if (ban) {
+    recordBan(ns, ban);
+    logger.tlog(ns, `casino: ${ban}. casino.ts will not run again in this save.`);
+    logger.log(ns, "casino: the casino is closed to us, stopping");
+    return;
+  }
+
   if (opts.dryRun) {
     logger.log(ns, `money ${core.fmt(core.money(ns))} -> wager ${core.fmt(policy.casinoWager(core.money(ns)))}`);
     logger.log(ns, `strategy ${opts.strategy} | max ${opts.maxRounds} hands | reload after ${opts.reloadAfterLosses} hands of losses`);
@@ -135,6 +150,12 @@ export async function main(ns: NS): Promise<void> {
   const state: policy.RoundState = { hands: 0, net: 0, peak: 0 };
   const reason = await playHands(ns, doc, opts, state);
   logger.log(ns, `casino: stopped (${reason}) after ${state.hands} hands, net ${core.fmt(state.net)}`);
+
+  // A kick-out is permanent for this save, so say it loudly in the terminal
+  // instead of letting the cooldown quietly back off.
+  if (policy.isBanText(reason)) {
+    logger.tlog(ns, `casino: ${reason}. ${policy.CASINO_BAN_MARKER} now records it, so the suite will not start casino.ts again.`);
+  }
 
   // Hand the screen back to the terminal, best effort.
   const terminal = find(doc, policy.XPATH.terminal);
@@ -280,6 +301,74 @@ function casinoWinnings(ns: NS): number {
   return core.tryCall(() => Number(ns.getMoneySources().sinceInstall.casino) || 0, 0);
 }
 
+/* -------------------------------------------------------------------------- */
+/*  The ban                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The note a previous run left when the house threw us out, or null when there
+ * is none. Blackjack has no API, so this file is the only way the kick-out
+ * survives past the script's own lifetime.
+ */
+function banNote(ns: NS): string | null {
+  const marker = policy.CASINO_BAN_MARKER;
+  try {
+    if (!ns.ls(ns.getHostname()).includes(marker)) return null;
+    const note = ns.read(marker);
+    return note
+      ? note.split("\n").filter((line) => line.trim()).join(" | ")
+      : "the note left by an earlier run";
+  } catch {
+    // Cannot prove a ban, so let the run carry on.
+    return null;
+  }
+}
+
+/** Why the casino is closed to us, or null while it is still open. */
+function banReason(ns: NS): string | null {
+  const note = banNote(ns);
+  if (note) return `already kicked out for cheating (${note})`;
+  if (policy.isBannedByWinnings(casinoWinnings(ns))) {
+    return `kicked out for cheating: winnings ${core.fmt(casinoWinnings(ns))} passed the ${core.fmt(policy.CASINO_BAN_THRESHOLD)} limit`;
+  }
+  return null;
+}
+
+/**
+ * Write the ban note so this script exits on its next run and autobot.ts stops
+ * scheduling it. Losing this file is not fatal: the winnings counter and the UI
+ * modal are checked every run too.
+ */
+function recordBan(ns: NS, reason: string): void {
+  if (banNote(ns)) return;
+  try {
+    ns.write(
+      policy.CASINO_BAN_MARKER,
+      `casino banned: ${reason}\ncasino winnings ${core.fmt(casinoWinnings(ns))}\n`,
+      "w",
+    );
+    logger.log(ns, `casino: wrote ${policy.CASINO_BAN_MARKER} so the suite stops scheduling casino.ts`);
+  } catch (err) {
+    logger.log(ns, `casino: could not record the ban (${(err as Error).message})`);
+  }
+}
+
+/**
+ * The kick-out modal, whatever its exact wording happens to be. The XPath is the
+ * fast path; the page scan is the fallback for a game update that rewords it.
+ */
+function banText(doc: any): string | null {
+  const modal = find(doc, policy.XPATH.kickedOut);
+  if (modal) return String(modal.textContent || "").trim();
+
+  const body = doc && doc.body ? String(doc.body.textContent || "") : "";
+  for (const phrase of policy.BAN_TEXTS) {
+    const at = body.toLowerCase().indexOf(phrase.toLowerCase());
+    if (at >= 0) return body.slice(at, at + 60).trim();
+  }
+  return null;
+}
+
 /**
  * A crime, a job or a class takes the player's focus, and the casino page is
  * replaced by the work page. If that happened, click "do something else
@@ -336,19 +425,33 @@ async function reachBlackjackTable(ns: NS, doc: any, opts: Options): Promise<voi
 }
 
 /**
- * True when a modal tells us we have been banned. Other modals have to be
- * closed first, because they sit in front of the ban message.
+ * True when the casino has thrown us out: the note an earlier run left, the
+ * game's own winnings counter, or the kick-out modal on screen. Other modals
+ * have to be closed first, because they sit in front of the ban message.
  */
 async function isBanned(ns: NS, doc: any, opts: Options, retries = 3): Promise<boolean> {
-  if (casinoWinnings(ns) >= policy.CASINO_BAN_THRESHOLD) return true;
+  if (banReason(ns)) return true;
 
   for (let attempt = 0; attempt < retries; ++attempt) {
-    if (find(doc, policy.XPATH.kickedOut)) return true;
+    if (banText(doc)) return true;
     const close = find(doc, policy.XPATH.closeModal);
     if (!close) break;
     await clickElement(ns, doc, close, opts);
   }
   return false;
+}
+
+/**
+ * Check for the kick-out and, when it happened, record it so neither this script
+ * nor autobot.ts starts the run again. Returns the reason, or null while the
+ * casino is still open to us.
+ */
+async function kickedOut(ns: NS, doc: any, opts: Options, retries = 1): Promise<string | null> {
+  const reason = banReason(ns)
+    ?? (await isBanned(ns, doc, opts, retries) ? "the casino kicked us out for cheating" : null);
+  if (!reason) return null;
+  recordBan(ns, reason);
+  return reason;
 }
 
 /**
@@ -386,6 +489,10 @@ async function playHands(ns: NS, doc: any, opts: Options, state: policy.RoundSta
   let startRetries = 0;
 
   while (state.hands < opts.maxRounds) {
+    // The house can throw us out between hands, so check before every bet.
+    const ban = await kickedOut(ns, doc, opts);
+    if (ban) return ban;
+
     const bet = policy.casinoWager(core.money(ns));
     if (bet <= 0) return "no money left to bet";
 
@@ -399,7 +506,8 @@ async function playHands(ns: NS, doc: any, opts: Options, state: policy.RoundSta
     if (!find(doc, policy.XPATH.hit) && !find(doc, policy.XPATH.stay)) {
       const outcome = await readOutcome(ns, doc, opts);
       if (outcome === null) {
-        if (await isBanned(ns, doc, opts)) return "banned by the casino";
+        const banNow = await kickedOut(ns, doc, opts, 3);
+        if (banNow) return banNow;
         if (++startRetries <= 5) {
           logger.log(ns, `casino: the Start click did not register (retry ${startRetries}/5)`);
           continue;
@@ -409,7 +517,8 @@ async function playHands(ns: NS, doc: any, opts: Options, state: policy.RoundSta
       state.hands += 1;
       const action = finishHand(ns, doc, opts, state, outcome, bet, moneyBefore);
       if (action === "reload") return await undoLosses(ns, opts);
-      if (await isBanned(ns, doc, opts, 1)) return "banned by the casino";
+      const ban = await kickedOut(ns, doc, opts, 1);
+      if (ban) return ban;
       continue;
     }
 
@@ -434,7 +543,8 @@ async function playHands(ns: NS, doc: any, opts: Options, state: policy.RoundSta
     state.hands += 1;
     const action = finishHand(ns, doc, opts, state, outcome, bet, moneyBefore);
     if (action === "reload") return await undoLosses(ns, opts);
-    if (await isBanned(ns, doc, opts, 1)) return "banned by the casino";
+    const banAfter = await kickedOut(ns, doc, opts, 1);
+    if (banAfter) return banAfter;
   }
 
   return "reached --max-rounds";

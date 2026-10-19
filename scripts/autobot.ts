@@ -15,8 +15,9 @@
  * RAM cost (GB), from the official RamCostGenerator:
  *   base 1.6 | scan 0.2 | ls 0.2 | getServer 2 | getHostname 0.05
  *   getServerMaxRam 0.05 | getServerUsedRam 0.05 | hasRootAccess 0.05
- *   getHackingLevel 0.05 | getPlayer 0.5 | scp 0.6 | exec 1.3 | sleep 0
- *   => 7.65 GB. Budget 8 GB.
+ *   getHackingLevel 0.05 | getPlayer 0.5 | getMoneySources 0.5 | kill 0.2
+ *   scp 0.6 | exec 1.3 | sleep 0
+ *   => 8.35 GB of its own calls, 15.15 GB with core.ts. Budget 16 GB.
  *
  * Usage
  *   run autobot.ts --install                 download everything, then run
@@ -38,12 +39,15 @@
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
 import * as logger from "./logger.ts";
+// casino-policy.ts makes no API calls at all, so importing it costs 0 GB and
+// keeps the casino's ban threshold in one place.
+import * as policy from "./casino-policy.ts";
 
 const REPO = "mpleier/Bitburner-Script";
 const DEFAULT_REF = "main";
 
-/** RAM the orchestrator itself needs (7.65 GB of its own calls + core.ts 6.5 GB). */
-const AUTOBOT_RAM = 15;
+/** RAM the orchestrator itself needs (15.15 GB per `npm run ram`). Budget 16 GB. */
+const AUTOBOT_RAM = 16;
 
 interface Module {
   /** Script filename. */
@@ -178,7 +182,12 @@ export async function main(ns: NS): Promise<void> {
 
   for (let loop = 0; loop < loops; ++loop) {
     const muted = useCooldown ? mutedModules(ns, tracked, loop) : new Set<string>();
-    const plan = makePlan(ns, core, only, skip, muted, optOut);
+    const banned = casinoBanned(ns);
+    if (banned) {
+      if (loop === 0) logger.log(ns, "casino: the house has kicked us out, casino.ts stays off");
+      stopBannedCasino(ns);
+    }
+    const plan = makePlan(ns, core, only, skip, muted, optOut, banned);
     startPlan(ns, plan, dryRun, tracked);
     dashboard(ns, core, plan);
 
@@ -256,6 +265,37 @@ function mutedModules(ns: NS, tracked: Map<string, Track>, loop: number): Set<st
   return muted;
 }
 
+/* -------------------------------------------------------------------------- */
+/*  The casino                                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The house throws us out for cheating once the winnings pass its limit, and
+ * casino.ts writes casino_banned.txt when it happens. Blackjack has no API, so
+ * that note plus the game's own winnings counter is how the orchestrator knows
+ * the casino is closed for this save. Without it casino.ts would be restarted
+ * every interval and print the same kick-out line forever.
+ */
+function casinoBanned(ns: NS): boolean {
+  const winnings = core.tryCall(() => Number(ns.getMoneySources().sinceInstall.casino) || 0, 0);
+  if (policy.isBannedByWinnings(winnings)) return true;
+
+  for (const host of core.rootedServers(ns)) {
+    if (core.tryCall(() => ns.ls(host).includes(policy.CASINO_BAN_MARKER), false)) return true;
+  }
+  return false;
+}
+
+/** Kill a casino run the house has already thrown out of. */
+function stopBannedCasino(ns: NS): void {
+  for (const host of reachable(ns)) {
+    if (!ns.hasRootAccess(host)) continue;
+    if (!core.tryCall(() => ns.scriptRunning("casino.ts", host), false)) continue;
+    ns.kill("casino.ts", host);
+    logger.log(ns, `casino.ts was kicked out of the casino; killed it on ${host}`);
+  }
+}
+
 /**
  * Decide which modules should run and where.
  *
@@ -269,6 +309,7 @@ function makePlan(
   skip: string[],
   muted: Set<string>,
   optOut: Set<string>,
+  banned: boolean,
 ): Placement[] {
   // scriptHosts() (not rootedServers()) so hacknet nodes are available as script
   // hosts: they have RAM, and RAM used by scripts on them raises hash gain.
@@ -287,6 +328,7 @@ function makePlan(
     !skip.includes(module.subsystem) &&
     (only.length === 0 || only.includes(module.subsystem)) &&
     !muted.has(module.file) &&
+    !(module.subsystem === "casino" && banned) &&
     core.subsystemAvailable(ns, module.subsystem) &&
     ns.ls(ns.getHostname()).includes(module.file) &&
     servers.some((server: any) => server.free >= module.ram);
@@ -304,6 +346,13 @@ function makePlan(
     if (only.length > 0 && !only.includes(module.subsystem)) continue;
     if (skip.includes(module.subsystem)) {
       placements.push({ module, host: null, reason: "excluded by --skip" });
+      continue;
+    }
+
+    // A banned casino is dead for the rest of the save: do not restart it, and
+    // do not let it mute the modules that conflict with its focus.
+    if (module.subsystem === "casino" && banned) {
+      placements.push({ module, host: null, reason: "the casino kicked us out for cheating" });
       continue;
     }
 

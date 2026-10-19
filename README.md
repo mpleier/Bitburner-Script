@@ -16,7 +16,7 @@ That single command downloads 23 files from GitHub, picks the best server, and s
 
 | Module | RAM | Requires | What it does |
 |---|---:|---|---|
-| `autobot.ts` | 15 GB | — | Orchestrator: installs, plans, places, starts, monitors |
+| `autobot.ts` | 16 GB | — | Orchestrator: installs, plans, places, starts, monitors |
 | `core.ts` | 11.3 GB* | — | Shared helpers (BFS scan, rooting, formatting, Bladeburner/work conflict guards), statically imported by every module |
 | `logger.ts` | 0.05 GB* | — | Routes every module's output into a log file instead of the terminal |
 | `types.ts` | 0 GB | — | Shared type definitions (type-only import, erased by the transpiler) |
@@ -37,7 +37,7 @@ That single command downloads 23 files from GitHub, picks the best server, and s
 | `infiltration.ts` | 27 GB | — | Ranks SP500 locations by expected value, infiltrates the best |
 | `darknet.ts` | 26 GB | BN15 / SF15 | Harvests stasis links, probes neighbours, heartbleeds logs |
 | `share.ts` | 6 GB | — | Fills leftover RAM with `share()` for faction work |
-| `casino.ts` | 35 GB | — | Blackjack at the Iker Molina Casino through the browser UI; on by default, disable with `--no-casino` |
+| `casino.ts` | 35 GB | — | Blackjack at the Iker Molina Casino through the browser UI; on by default, disable with `--no-casino`, and it stops for good once the house kicks us out |
 | `casino-policy.ts` | 0 GB | — | The casino's decision tables (wager sizing, blackjack strategy, reload logic) - no API calls, so it is unit-testable offline |
 
 \* `core.ts` is **statically** imported, so its API calls are added to every module that
@@ -148,7 +148,7 @@ blocked: gang (needs Source-File 3), bladeburner (not in this Bitnode), ...
 
 ```text
 run install.js --kill     # kills every suite script on every rooted server
-run autobot.ts --kill     # same, but autobot.ts itself needs 15 GB of RAM
+run autobot.ts --kill     # same, but autobot.ts itself needs 16 GB of RAM
 ```
 
 ---
@@ -175,7 +175,7 @@ run autobot.ts --kill     # same, but autobot.ts itself needs 15 GB of RAM
 `--no-run` (install only), `--server n0006` (force where the bot runs), `--selftest`
 (one dry-run pass of the orchestrator), `--no-update` (do not refresh install.js itself),
 `--kill` (stop the whole suite from a small
-server - `install.js` only needs ~7 GB, `autobot.ts` needs 15 GB), `--logs N` (read
+server - `install.js` only needs ~7 GB, `autobot.ts` needs 16 GB), `--logs N` (read
 the log without running anything) and `--status` (which suite scripts are running, on
 which server, how much RAM each costs, and where the log file is).
 
@@ -754,6 +754,21 @@ peak by `--reload-after-losses` bets, which undoes the losses. The reload kills
 the script; the save file restarts it. The run ends when the house bans you, which
 the game records in `ns.getMoneySources().sinceInstall.casino` (10 billion).
 
+**Being kicked out stops the casino for good.** Blackjack has no API, so the
+kick-out is detected three ways: the modal on screen ("Alright cheater get out of
+here"), the game's own winnings counter, and a `casino_banned.txt` note that
+`casino.ts` writes on its server the moment the house throws it out. Every later
+run reads that note and exits before travelling to Aevum, and `autobot.ts` checks
+the same three signals before it schedules `casino.ts`:
+
+```text
+  casino.ts         skipped: the casino kicked us out for cheating
+```
+
+The orchestrator also kills a casino run that is already playing, and stops
+muting `crime.ts`, `jobs.ts`, `factions.ts`, `bladeburner.ts` and `share.ts`,
+because with the casino closed there is no focus conflict left.
+
 **Focus conflict.** The player can only do one focused thing at a time, and a
 faction job, a company job, a crime, a Bladeburner action or `share()` replaces the
 casino page with the work page. Because `casino.ts` is scheduled by default, the
@@ -768,8 +783,8 @@ share.ts        blocked  focus conflict: the casino drives the UI
 ```
 
 The mute is conditional: it only applies when `casino.ts` would actually run. Pass
-`--no-casino`, `--skip casino`, or run out of a server with 35 GB free and those
-five modules go back to work.
+`--no-casino`, `--skip casino`, get kicked out of the casino, or run out of a server
+with 35 GB free and those five modules go back to work.
 
 `sleeves.ts`, `go.ts` and `infiltration.ts` are unaffected: sleeve work belongs to
 the sleeves, and Go/Infiltration are read through the API without opening a page.
@@ -874,10 +889,10 @@ c_*.ts                reference copies of official contract implementations
 |---|---|
 | `Module not found: ../defs.d` | Do not import the typings. `NS` is a global type in Bitburner; see [Typing `ns`](#typing-ns-why-there-is-no-import--ns-anywhere). |
 | `FAILED to download ...` | Check the branch with `--ref main`. `raw.githubusercontent.com` allows CORS, so `wget` works; a proxy/firewall may not. |
-| `autobot.ts needs ~15 GB` | Run it on a server with at least 15 GB of **free** RAM (upgrade home RAM, root a bigger server, or kill what is already running there), or use `--only hacknet,share` until you have one. |
+| `autobot.ts needs ~16 GB` | Run it on a server with at least 16 GB of **free** RAM (upgrade home RAM, root a bigger server, or kill what is already running there), or use `--only hacknet,share` until you have one. |
 | `Dynamic RAM usage calculated to be greater than RAM allocation` | The script's declared budget is below what Bitburner actually allocates. Run `node ramgap.mjs` to see the real allocation of every module, then raise that module's `RAM_NEEDED`. This is also what happens if a module that calls the API is loaded through `ns.dynamicImport()`. |
 | `Not enough RAM` in a module | That module's header lists the exact requirement. Root a bigger server or upgrade home RAM. |
-| `Could not start autobot.ts` | `ns.exec()` returns `0` for three reasons, and the installer now prints which one applies: no root on the target, `autobot.ts` not on the target, or **not enough free RAM** - Bitburner allocates 14.15 GB for `autobot.ts`, so it needs a server with 15 GB free. Root a bigger server, kill what is running, or upgrade home RAM. |
+| `Could not start autobot.ts` | `ns.exec()` returns `0` for three reasons, and the installer now prints which one applies: no root on the target, `autobot.ts` not on the target, or **not enough free RAM** - Bitburner allocates 15.15 GB for `autobot.ts`, so it needs a server with 16 GB free. Root a bigger server, kill what is running, or upgrade home RAM. |
 | `Cannot find module logger.ts`, or a module refuses to start | The in-game `install.js` is older than the repo, so it never downloaded `logger.ts` - which every module now imports statically. `install.js` refreshes itself from GitHub on every run, so just `run install.js` again (drop `--no-update` if you were using it). |
 | `Skipped loading player scripts during startup` | The game could not compile a script, usually because an imported file is missing. Check with `ls` that `core.ts`, `logger.ts` and `types.ts` are on the server, then re-run `install.js`. |
 | A script is still creating programs (`Creating a program FTPCrack.exe`) | An old copy of a module is still running somewhere. `run install.js --kill`, then `run install.js` again. See [Programs: buy them, never create them](#programs-buy-them-never-create-them). |
