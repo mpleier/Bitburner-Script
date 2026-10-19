@@ -43,6 +43,19 @@ import * as logger from "./logger.ts";
 
 const RAM_NEEDED = 462;
 
+/**
+ * Cost of creating a corporation, straight from the game source
+ * (src/Corporation/helpers.ts -> costOfCreatingCorporation):
+ *   - self-funded:  $150b
+ *   - re-creating a seed-funded corp after a reset: $50b
+ *
+ * canCreateCorporation() only checks SF3 / BitNode / "corp already exists".
+ * It does NOT look at your money, so it happily returns "Success" while
+ * createCorporation() returns false because you cannot pay the $150b. That is
+ * the "failed even though canCreateCorporation said Success" case.
+ */
+const SELF_FUND_COST = 150_000_000_000;
+
 /** Industries worth opening, in order of how good their products are. */
 const INDUSTRY_ORDER: CorpIndustryName[] = [
   "Software",
@@ -89,6 +102,23 @@ export async function main(ns: NS): Promise<void> {
         logger.tlog(ns, `corporation.ts: cannot create a corporation (${check}). Exiting.`);
         return;
       }
+
+      // canCreateCorporation() says "Success" as soon as you own SF3, but
+      // createCorporation() still needs $150b. Check it ourselves, otherwise the
+      // module exits every interval with a message that looks like a bug.
+      const cash = core.money(ns);
+      if (cash < SELF_FUND_COST) {
+        logger.tlog(ns,
+          `corporation.ts: creating a corporation costs ${core.fmt(SELF_FUND_COST)}, ` +
+          `you have ${core.fmt(cash)}.`,
+        );
+        logger.tlog(ns,
+          "Seed money (createCorporation(name, false)) is only allowed in BitNode 3. " +
+          "Keep earning, then re-run this module.",
+        );
+        return;
+      }
+
       if (dryRun) {
         logger.log(ns, "[dry-run] would create a corporation");
         // There is nothing to manage without a corporation, and every
@@ -96,8 +126,12 @@ export async function main(ns: NS): Promise<void> {
         // nextUpdate included - throws "Must own a corporation."
         return;
       }
+
       if (!ns.corporation.createCorporation("Bitburner Industries", true)) {
-        logger.tlog(ns, "corporation.ts: createCorporation failed even though canCreateCorporation said Success. Exiting.");
+        logger.tlog(ns,
+          "corporation.ts: createCorporation() returned false. The game wrote the " +
+          "reason to this script's log - run `tail corporation.ts` to see it. Exiting.",
+        );
         return;
       }
       logger.log(ns, "corporation created");

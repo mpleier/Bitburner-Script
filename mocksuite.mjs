@@ -1284,10 +1284,18 @@ function makeNs(args, host, opts) {
         if (!selfFund && opts.bitnode !== 3) return "UseSeedMoneyOutsideBN3";
         return "Success";
       },
-      createCorporation: (name, selfFund) => {
+      createCorporation: (name, selfFund = true) => {
         if (corpState.hasCorp) return false;
         if (!(opts.sourceFiles.has(3) || opts.bitnode === 3)) return false;
         if (!selfFund && opts.bitnode !== 3) return false;
+        // src/Corporation/Actions.ts: self-funding costs $150b
+        // (costOfCreatingCorporation). canCreateCorporation() never checks
+        // money, so createCorporation() is where the affordability gate bites.
+        if (selfFund) {
+          const cost = 150e9;
+          if (player.money < cost) return false;
+          player.money -= cost;
+        }
         corpState.hasCorp = true;
         corpState.name = name;
         return true;

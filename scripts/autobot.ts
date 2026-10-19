@@ -88,6 +88,24 @@ const MODULES: Module[] = [
 /** Files every module needs next to it. */
 const SUPPORT_FILES = ["core.ts", "logger.ts", "types.ts", "contracts.ts"];
 
+/**
+ * A module that exits straight away (karma too high, not enough money for a
+ * corporation, no RAM, ...) would otherwise be restarted on every interval and
+ * print the same line forever. After a couple of quick exits it is left alone
+ * for COOLDOWN loops, then retried.
+ */
+const QUICK_EXIT_LIMIT = 2;
+const COOLDOWN_LOOPS = 12;
+
+/** Per-module restart bookkeeping used by the cooldown above. */
+interface Track {
+  host: string;
+  /** How many consecutive intervals this script was found not running. */
+  exits: number;
+  /** Loop number before which the module must not be re-started. */
+  mutedUntil: number;
+}
+
 /** Files the installer downloads when --install is used. */
 const SUITE_FILES = MODULES.map((m) => m.file).concat(SUPPORT_FILES, ["install.js"]);
 
@@ -132,9 +150,12 @@ export async function main(ns: NS): Promise<void> {
   logger.log(ns, "=== autobot ===");
   logger.log(ns, `bitnode ${core.bitnode(ns)} | money ${core.fmt(core.money(ns))} | hacking ${ns.getHackingLevel()}`);
 
+  const tracked = new Map<string, Track>();
+
   for (let loop = 0; loop < loops; ++loop) {
-    const plan = makePlan(ns, core, only, skip);
-    startPlan(ns, plan, dryRun);
+    const muted = mutedModules(ns, tracked, loop);
+    const plan = makePlan(ns, core, only, skip, muted);
+    startPlan(ns, plan, dryRun, tracked);
     dashboard(ns, core, plan);
 
     if (loop + 1 < loops) await ns.sleep(interval);
@@ -175,12 +196,38 @@ interface Placement {
 }
 
 /**
+ * Modules that have exited QUICK_EXIT_LIMIT times in a row are muted for
+ * COOLDOWN loops. Returns the set of files that must not be started this loop.
+ */
+function mutedModules(ns: NS, tracked: Map<string, Track>, loop: number): Set<string> {
+  const muted = new Set<string>();
+
+  for (const [file, t] of tracked) {
+    if (ns.scriptRunning(file, t.host)) {
+      t.exits = 0;
+      continue;
+    }
+
+    t.exits += 1;
+    if (t.exits === QUICK_EXIT_LIMIT) {
+      logger.log(ns,
+        `${file} exited ${t.exits}x on ${t.host} without doing anything; ` +
+        `retrying in ${COOLDOWN_LOOPS} loops`);
+    }
+    if (t.exits >= QUICK_EXIT_LIMIT) t.mutedUntil = loop + COOLDOWN_LOOPS;
+    if (t.mutedUntil > loop) muted.add(file);
+  }
+
+  return muted;
+}
+
+/**
  * Decide which modules should run and where.
  *
  * Servers are filled in priority order: the module with the lowest priority
  * number claims the rooted server with the most free RAM that can hold it.
  */
-function makePlan(ns: NS, core: any, only: string[], skip: string[]): Placement[] {
+function makePlan(ns: NS, core: any, only: string[], skip: string[], muted: Set<string>): Placement[] {
   // scriptHosts() (not rootedServers()) so hacknet nodes are available as script
   // hosts: they have RAM, and RAM used by scripts on them raises hash gain.
   const servers = (core.scriptHosts(ns) as string[])
@@ -193,6 +240,11 @@ function makePlan(ns: NS, core: any, only: string[], skip: string[]): Placement[
     if (only.length > 0 && !only.includes(module.subsystem)) continue;
     if (skip.includes(module.subsystem)) {
       placements.push({ module, host: null, reason: "excluded by --skip" });
+      continue;
+    }
+
+    if (muted.has(module.file)) {
+      placements.push({ module, host: null, reason: "cooldown: it keeps exiting immediately" });
       continue;
     }
 
@@ -221,12 +273,17 @@ function makePlan(ns: NS, core: any, only: string[], skip: string[]): Placement[
 }
 
 /** Copy the files and start the scripts. Returns how many were started. */
-function startPlan(ns: NS, plan: Placement[], dryRun: boolean): number {
+function startPlan(ns: NS, plan: Placement[], dryRun: boolean, tracked: Map<string, Track>): number {
   let started = 0;
 
   for (const p of plan) {
     if (!p.host) continue;
-    if (ns.scriptRunning(p.module.file, p.host)) continue;
+
+    if (ns.scriptRunning(p.module.file, p.host)) {
+      // Keep the entry alive so mutedModules() can notice a later exit.
+      if (!tracked.has(p.module.file)) tracked.set(p.module.file, { host: p.host, exits: 0, mutedUntil: 0 });
+      continue;
+    }
 
     if (dryRun) {
       logger.log(ns, `[dry-run] would run ${p.module.file} on ${p.host} (${p.module.ram} GB)`);
@@ -240,6 +297,7 @@ function startPlan(ns: NS, plan: Placement[], dryRun: boolean): number {
       logger.log(ns, `could not start ${p.module.file} on ${p.host}`);
     } else {
       logger.log(ns, `started ${p.module.file} on ${p.host} (pid ${pid}, ${p.module.ram} GB)`);
+      tracked.set(p.module.file, { host: p.host, exits: 0, mutedUntil: 0 });
       started += 1;
     }
   }

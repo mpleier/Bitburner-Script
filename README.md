@@ -403,12 +403,36 @@ one. The loop now reads:
 if (!ns.corporation.hasCorporation()) {
   const check = ns.corporation.canCreateCorporation(true);   // "Success" | reason
   if (check !== "Success") { ns.tprint(check); return; }
+  if (core.money(ns) < 150e9) { ns.tprint("A corporation costs $150b"); return; }
   if (dryRun) { ns.print("[dry-run] would create a corporation"); return; }
   if (!ns.corporation.createCorporation("Bitburner Industries", true)) return;
 }
 // a corporation is guaranteed to exist from here on
 await ns.corporation.nextUpdate();
 ```
+
+`canCreateCorporation()` is a **permission** check, not an affordability check. From
+`src/Corporation/helpers.ts`:
+
+```ts
+export function canCreateCorporation(selfFund, restart) {
+  if (!Player.canAccessCorporation()) return NoSf3OrDisabled;
+  if (Player.corporation && !restart) return CorporationExists;
+  if (Player.bitNodeN !== 3 && !selfFund) return UseSeedMoneyOutsideBN3;
+  if (currentNodeMults.CorporationSoftcap < 0.15) return DisabledBySoftCap;
+  return Success;                       // <-- money is never looked at
+}
+
+export function costOfCreatingCorporation(restart) {
+  if (restart && !Player.corporation?.seedFunded) return 50e9;
+  return 150e9;
+}
+```
+
+So `createCorporation(name, true)` returns `false` with the message *"You don't have
+enough money to create a corporation. It costs $150b."* whenever you cannot pay it -
+which is why `corporation.ts` checks `core.money(ns) >= 150e9` itself before trying.
+Seed money (`createCorporation(name, false)`) is free but only legal in BitNode 3.
 
 The stock market has three stacked gates (`src/StockMarket.ts`):
 
@@ -760,7 +784,10 @@ c_*.ts                reference copies of official contract implementations
 | `Cannot find module logger.ts`, or a module refuses to start | The in-game `install.js` is older than the repo, so it never downloaded `logger.ts` - which every module now imports statically. Refresh the installer and re-run it: `wget https://raw.githubusercontent.com/mpleier/Bitburner-Script/main/scripts/install.js install.js` then `run install.js`. |
 | `Skipped loading player scripts during startup` | The game could not compile a script, usually because an imported file is missing. Check with `ls` that `core.ts`, `logger.ts` and `types.ts` are on the server, then re-run `install.js`. |
 | A script is still creating programs (`Creating a program FTPCrack.exe`) | An old copy of a module is still running somewhere. `run install.js --kill`, then `run install.js` again. See [Programs: buy them, never create them](#programs-buy-them-never-create-them). |
-| A module shows as `blocked` | The dashboard prints why (missing Source-File, Bitnode requirement, not enough RAM). It is not a bug. |
+| `createCorporation failed even though canCreateCorporation said Success` | Self-funding a corporation costs **$150 billion** (`costOfCreatingCorporation`), and `canCreateCorporation()` only checks SF3/BitNode - it never looks at your money. `corporation.ts` now checks the balance itself and prints the shortfall instead of this confusing line. Seed money is free but only legal in BitNode 3. |
+| `Gangs need karma <= -54000 outside BitNode 2` | Not a bug: outside BitNode 2 a gang only forms once karma is at or below -54000. `crime.ts` drives karma down; let it run. |
+| The same message printed every interval | `autobot.ts` now mutes a module that exits straight away: after 2 quick exits it is left alone for 12 loops (60 s by default) and then retried, so blocked subsystems do not flood the terminal. |
+| A module shows as `blocked` | The dashboard prints why (missing Source-File, Bitnode requirement, not enough RAM, cooldown). It is not a bug. |
 | `0 solved`, contracts skipped | That contract type has no solver yet — the runner prints `No solver for: ...` at the start. |
 | Contract attempts exhausted | Use `--dry-run` first to verify answers before spending attempts. |
 | `Argument ... should be a ... enum member` | A hardcoded name is not in the game's enum. See [Names the game validates](#names-the-game-validates-why-nothing-is-hardcoded) and run `node enumcheck.mjs`. |

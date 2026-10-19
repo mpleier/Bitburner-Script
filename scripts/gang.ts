@@ -74,8 +74,9 @@ export async function main(ns: NS): Promise<void> {
 
   // Outside BitNode 2 gangs only recruit you once karma is low enough (<= -54000).
   if (core.bitnode(ns) !== 2 && core.karma(ns) > -54000) {
-    logger.tlog(ns, 
-      `Gangs need karma <= -54000 outside BitNode 2 (current karma ${core.karma(ns)}).`,
+    logger.tlog(ns,
+      `Gangs need karma <= -54000 outside BitNode 2 (current karma ${core.karma(ns)}). ` +
+      "crime.ts drives karma down - let it run, or play BitNode 2.",
     );
     return;
   }
