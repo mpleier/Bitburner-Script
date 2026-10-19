@@ -28,6 +28,17 @@
  *   node contractRunner.ts --loop --interval 30000  # keep rescanning
  *   node contractRunner.ts --max 50                 # stop after N contracts
  *   node contractRunner.ts --open-ports             # also open ports + NUKE for hacking
+ *
+ * Output
+ *   Everything is appended to the log file (autobot_log.txt, or --log <file>) on
+ *   the server the script runs on; nothing is tprinted. Read it with:
+ *     run install.js --logs 30
+ *   or, from the game terminal on that server:
+ *     cat autobot_log.txt
+ *   --verbose mirrors the log to the terminal as well. The only terminal lines
+ *   are the one-time "contracts.ts missing" / "not enough RAM" warnings and the
+ *   result of an explicit --selftest, so an autobot-driven restart of this
+ *   module never spams the console.
  */
 
 /**
@@ -66,7 +77,7 @@ export async function main(ns: NS): Promise<void> {
 
   // contracts.ts is dynamically imported: 0 GB RAM.
   if (!ns.ls(currentServer, "contracts.ts").length) {
-    logger.tlog(ns, "Error: contracts.ts must be on the same server as contractRunner.ts");
+    logger.tlogOnce(ns, "Error: contracts.ts must be on the same server as contractRunner.ts");
     return;
   }
   const solvers: Solvers = await ns.dynamicImport("./contracts.ts");
@@ -84,10 +95,10 @@ export async function main(ns: NS): Promise<void> {
       ns.scp("contracts.ts", host);
       ns.scp("contractRunner.ts", host);
       ns.exec("contractRunner.ts", host, 1, ...args);
-      logger.tlog(ns, `Relocated to ${host} (needs ${RAM_NEEDED} GB, ${host} has ${ns.getServerMaxRam(host)} GB)`);
+      logger.tlogOnce(ns, `Relocated to ${host} (needs ${RAM_NEEDED} GB, ${host} has ${ns.getServerMaxRam(host)} GB)`);
       return;
     }
-    logger.tlog(ns, `Not enough RAM on ${currentServer} (${ns.getServerMaxRam(currentServer)} GB < ${RAM_NEEDED} GB) and no rooted server is big enough.`);
+    logger.tlogOnce(ns, `Not enough RAM on ${currentServer} (${ns.getServerMaxRam(currentServer)} GB < ${RAM_NEEDED} GB) and no rooted server is big enough.`);
     return;
   }
 
@@ -166,7 +177,7 @@ export async function main(ns: NS): Promise<void> {
       }
     }
 
-    logger.tlog(ns, 
+    logger.log(ns,
       `Round ${round}: ${found} contracts | ${solved} solved | ${failed} failed | ` +
         `${skippedUnsupported} unsupported | ${rootFailed} not rootable`,
     );

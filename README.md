@@ -8,7 +8,7 @@ subsystem on the biggest rooted server that can hold it, and keeps them all runn
 run install.js
 ```
 
-That single command downloads 20 files from GitHub, picks the best server, and starts the bot.
+That single command downloads 23 files from GitHub, picks the best server, and starts the bot.
 
 ---
 
@@ -113,7 +113,9 @@ action is. Each rooted server keeps its own copy, so read the log of the server 
 ```text
 connect n0006          # or: cd n0006
 cat autobot_log.txt
-run install.js --logs 30      # last 30 log lines of the server you are on
+run install.js --logs 30      # last 30 log lines; install.js searches every rooted
+                              # server and prints which one the log came from
+run install.js --status       # which suite scripts are running, where, and their RAM
 run autobot.ts --verbose      # mirror the log to the terminal as it happens
 ```
 
@@ -161,8 +163,9 @@ run autobot.ts --kill     # same, but autobot.ts itself needs 15 GB of RAM
 `install.js` accepts the same flags plus `--open-ports` (root everything you can),
 `--no-run` (install only), `--server n0006` (force where the bot runs), `--selftest`
 (one dry-run pass of the orchestrator), `--kill` (stop the whole suite from a small
-server - `install.js` only needs ~7 GB, `autobot.ts` needs 15 GB) and `--logs N`
-(read the log without running anything).
+server - `install.js` only needs ~7 GB, `autobot.ts` needs 15 GB), `--logs N` (read
+the log without running anything) and `--status` (which suite scripts are running, on
+which server, how much RAM each costs, and where the log file is).
 
 ---
 
@@ -193,6 +196,9 @@ Rules the logger follows:
   line per cycle ("members 6 | respect 1200.0 | ... | this cycle: 6 recruits,
   6 purchases (8.40K)") instead of one line per member, office, hire or hand. Pass
   `--verbose` to get every individual action.
+- **`contractRunner.ts` never prints to the terminal.** Every contract it touches and
+  one summary line per round ("Round 3: 12 contracts | 11 solved | 1 failed") go to the
+  log file; add `--verbose` to see them as they happen.
 - **Milestones and fatal errors still `tprint`.** `logger.tlog()` writes to the file
   *and* to the console, so "not enough RAM" / "corporation disabled" is never missed.
   `logger.tlogOnce()` is the same but only reaches the console the first time the
@@ -776,6 +782,7 @@ npm run selftest            # 36 known-answer contract checks
 npm run fuzz                # 8400 randomized differential checks
 npm run mock              # every module against a fake ns API
 npm run suite             # same, 3 loops, verbose output
+npm run installer         # install.js against the fake ns, one run per flag
 npm run test              # all of the above
 ```
 
@@ -830,6 +837,7 @@ scripts/
   _hacknettest.ts     hacknet-node filtering test (runs against the mock)
 
 mocksuite.mjs         fake ns API, runs the whole suite offline
+installcheck.mjs      runs scripts/install.js against that fake ns (wget stubbed to disk)
 selftest.mjs          known-answer solver tests
 fuzz.mjs              randomized differential tests
 importcheck.mjs       replays the game's module resolver to catch bad imports

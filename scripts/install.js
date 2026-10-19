@@ -13,15 +13,23 @@
  * GitHub, so re-running install.js is also the way to UPDATE the suite.
  *
  * Flags
- *   --open-ports      also open ports + NUKE servers you can root (for hacking)
- *   --no-run          download the files but do not start autobot.ts
- *   --kill            stop every suite script running on every rooted server
- *   --logs [N]        print the last N lines of autobot_log.txt and exit
- *   --selftest        start autobot.ts once in --dry-run mode and show the plan
+ *   --open-ports             also open ports + NUKE servers you can root (for hacking)
+ *   --no-run                 download the files but do not start autobot.ts
+ *   --kill                   stop every suite script running on every rooted server
+ *   --logs [N]               print the last N lines of the log and exit. Every server
+ *                            keeps its own log file, so this searches every rooted
+ *                            server and says which one it found the log on.
+ *   --status                 list which suite scripts are running, on which server,
+ *                            how much RAM each one costs, and where the log lives
+ *   --selftest               start autobot.ts once in --dry-run mode and show the plan
  *   --only hacking,hacknet   forward to autobot.ts
  *   --skip corporation       forward to autobot.ts
  *   --dry-run                forward to autobot.ts
  *   --interval 5000          forward to autobot.ts
+ *   --loops 3                forward to autobot.ts
+ *   --log mylog              log file name (logger.ts adds ".txt" if you leave it off)
+ *   --verbose                per-action detail instead of one summary line per cycle
+ *   --no-log                 print to the terminal instead of writing a log file
  *   --ref main               branch/tag of the repo to pull from
  *   --server n0006           force which server autobot.ts runs on
  *
@@ -35,6 +43,8 @@
  *   ps 0.2 | kill 0.5 | scp 0.6 | exec 1.3 | wget 0 | read/write 0
  *   print/tprint/sleep 0
  *   => ~7 GB, so it fits on an 8 GB home server.
+ *   --logs and --status are read-only: they add only read (0 GB) and ps (0.2 GB),
+ *   so they are safe to run at any point in a save.
  */
 
 const REPO = "mpleier/Bitburner-Script";
@@ -67,15 +77,48 @@ export async function main(ns) {
   /* 0. Read-only conveniences, so you can inspect the bot without running it. */
   if (args.includes("--logs")) {
     const n = Number(flag(args, "--logs") ?? 40);
-    const file = flag(args, "--log") ?? "autobot_log.txt";
-    let text = "";
-    try {
-      text = ns.read(file);
-    } catch {
-      text = "";
+    const found = findLog(ns, logNames(flag(args, "--log")));
+    if (!found) {
+      ns.tprint("no log file on any rooted server - start a module first: run autobot.ts");
+      return;
     }
-    const lines = text.split("\n").filter((l) => l.trim()).slice(-n);
-    ns.tprint(lines.length ? lines.join("\n") : `no ${file} on ${here} yet - run a module first`);
+    const lines = found.text.split("\n").filter((l) => l.trim()).slice(-n);
+    ns.tprint(`${found.name} on ${found.host}: ${found.text.length} chars, showing the last ${lines.length}`);
+    ns.tprint(lines.join("\n"));
+    return;
+  }
+
+  if (args.includes("--status")) {
+    const rows = [];
+    for (const host of reachable(ns)) {
+      if (!ns.hasRootAccess(host)) continue;
+
+      let procs = [];
+      try {
+        procs = ns.ps(host);
+      } catch {
+        continue;
+      }
+
+      const suite = procs.filter((p) => FILES.includes(p.filename));
+      if (!suite.length) continue;
+
+      const detail = suite
+        .map((p) => `${p.filename}${p.bytesUsed != null ? ` (${p.bytesUsed.toFixed(2)} GB, pid ${p.pid})` : ` (pid ${p.pid})`}`)
+        .join(", ");
+      rows.push(`${host}: ${detail} | RAM ${ns.getServerUsedRam(host).toFixed(2)}/${ns.getServerMaxRam(host)} GB`);
+    }
+
+    if (!rows.length) {
+      ns.tprint("No suite script is running on any rooted server. Start one: run autobot.ts");
+      return;
+    }
+
+    ns.tprint(rows.join("\n"));
+    const found = findLog(ns, logNames(flag(args, "--log")));
+    ns.tprint(found
+      ? `log: ${found.name} on ${found.host} (${found.text.length} chars) - read it with: run install.js --logs 30`
+      : "no log file written yet");
     return;
   }
 
@@ -164,7 +207,44 @@ export async function main(ns) {
         `args: ${autobotArgs.length ? autobotArgs.join(" ") : "(defaults)"}`,
     );
     ns.tprint("Read the log with: cat autobot_log.txt  (or run install.js --logs 30)");
+    ns.tprint("gang/corporation/casino print one summary line per cycle - add --verbose for every action.");
   }
+}
+
+/** Every server reachable from `from` by ns.scan(), as a Set. */
+function reachable(ns, from) {
+  const seen = new Set();
+  const queue = [from ?? ns.getHostname()];
+  while (queue.length > 0) {
+    const host = queue.shift();
+    if (seen.has(host)) continue;
+    seen.add(host);
+    for (const next of ns.scan(host)) if (!seen.has(next)) queue.push(next);
+  }
+  return seen;
+}
+
+/** logger.ts appends ".txt" to a name without a valid extension, so try both. */
+function logNames(value) {
+  const name = value ?? "autobot_log.txt";
+  return /\.(txt|json|css)$/i.test(name) ? [name] : [`${name}.txt`, name];
+}
+
+/** Each server keeps its own log file, so search every rooted server for it. */
+function findLog(ns, names) {
+  for (const host of reachable(ns)) {
+    if (!ns.hasRootAccess(host)) continue;
+    for (const name of names) {
+      let text = "";
+      try {
+        text = ns.read(name, host);
+      } catch {
+        continue;
+      }
+      if (text && text.trim()) return { host, name, text };
+    }
+  }
+  return null;
 }
 
 /** Open ports and NUKE every server we can already root. */
@@ -177,16 +257,7 @@ function openPorts(ns) {
     ["SQLInject.exe", ns.sqlinject],
   ].filter(([prog]) => ns.fileExists(prog));
 
-  const seen = new Set();
-  const queue = [ns.getHostname()];
-  while (queue.length > 0) {
-    const host = queue.shift();
-    if (seen.has(host)) continue;
-    seen.add(host);
-    for (const next of ns.scan(host)) if (!seen.has(next)) queue.push(next);
-  }
-
-  for (const host of seen) {
+  for (const host of reachable(ns)) {
     if (ns.hasRootAccess(host)) continue;
 
     for (const [, open] of openers) open(host);
@@ -201,21 +272,10 @@ function openPorts(ns) {
 
 /** BFS over ns.scan(); returns the rooted server with the most FREE RAM. */
 function bestHost(ns, fallback) {
-  const seen = new Set();
-  const queue = ["home"];
   let best = null;
   let bestFree = 0;
 
-  while (queue.length > 0) {
-    const host = queue.shift();
-    if (seen.has(host)) continue;
-    seen.add(host);
-    for (const next of ns.scan(host)) {
-      if (!seen.has(next)) queue.push(next);
-    }
-  }
-
-  for (const host of seen) {
+  for (const host of reachable(ns, "home")) {
     // getServer() throws for a host that is no longer on the network, and hacknet
     // nodes are not Server objects - neither is a usable script host.
     let server = null;
@@ -240,17 +300,8 @@ function bestHost(ns, fallback) {
 
 /** Kill every script of the suite that is running on a rooted server. */
 function killSuite(ns) {
-  const seen = new Set();
-  const queue = [ns.getHostname()];
-  while (queue.length > 0) {
-    const host = queue.shift();
-    if (seen.has(host)) continue;
-    seen.add(host);
-    for (const next of ns.scan(host)) if (!seen.has(next)) queue.push(next);
-  }
-
   let killed = 0;
-  for (const host of seen) {
+  for (const host of reachable(ns)) {
     let procs = [];
     try {
       procs = ns.ps(host);
@@ -279,7 +330,9 @@ function forwarded(args) {
       continue;
     }
     if (a === "--no-run" || a === "--open-ports" || a === "--selftest") continue;
-    if (a === "--logs" || a === "--kill") continue; // installer-only conveniences
+    // installer-only conveniences: autobot.ts has its own --logs/--kill/--status,
+    // and running both would just print the same thing twice.
+    if (a === "--logs" || a === "--kill" || a === "--status") continue;
     out.push(a);
   }
   return out;

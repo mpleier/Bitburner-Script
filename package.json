@@ -13,8 +13,9 @@
     "ram": "node ramgap.mjs",
     "ramcheck": "node ramcheck.mjs",
     "enums": "node enumcheck.mjs",
+    "installer": "node installcheck.mjs",
     "suite": "node mocksuite.mjs --loops 3 --verbose",
-    "test": "npm run typecheck && npm run imports && npm run ram && npm run enums && npm run selftest && npm run fuzz && node mocksuite.mjs"
+    "test": "npm run typecheck && npm run imports && npm run ram && npm run enums && npm run installer && npm run selftest && npm run fuzz && node mocksuite.mjs"
   },
   "devDependencies": {
     "@swc/core": "^1.16.18",
