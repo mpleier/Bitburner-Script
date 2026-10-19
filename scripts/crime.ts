@@ -85,6 +85,12 @@ export async function main(ns: NS): Promise<void> {
       }
     }
 
+    // Gangs unlock at karma <= -54000 outside BitNode 2, so keep the number
+    // visible in the log instead of making the player guess.
+    if (loop % 20 === 0) {
+      logger.log(ns, `karma ${core.karma(ns)} (gang forms at <= -54000 outside BitNode 2)`);
+    }
+
     shadowChain(ns, dryRun);
     await ns.sleep(1000);
   }
