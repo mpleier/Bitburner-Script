@@ -106,11 +106,12 @@ run install.js
 ### 2. Watch it
 
 Every module writes to `autobot_log.txt` on the server it runs on, so the log is where the
-action is:
+action is. Each rooted server keeps its own copy, so read the log of the server you want:
 
 ```text
+connect n0006          # or: cd n0006
 cat autobot_log.txt
-run install.js --logs 30      # last 30 log lines, works on an 8 GB home server
+run install.js --logs 30      # last 30 log lines of the server you are on
 run autobot.ts --verbose      # mirror the log to the terminal as it happens
 ```
 
