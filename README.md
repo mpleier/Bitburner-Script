@@ -95,10 +95,23 @@ run install.js
 `ns.wget()` (0 GB RAM) pulls every file straight from GitHub, so you never have to paste
 the solver code into the game. Re-running `install.js` is also how you **update** the suite.
 
-### 2. Watch it
+`install.js` is the one file the game cannot update by itself, so if you pasted it a long
+ago and it is missing a file (e.g. `logger.ts`), refresh the installer first:
 
 ```text
-tail autobot.ts
+wget https://raw.githubusercontent.com/mpleier/Bitburner-Script/main/scripts/install.js install.js
+run install.js
+```
+
+### 2. Watch it
+
+Every module writes to `autobot_log.txt` on the server it runs on, so the log is where the
+action is:
+
+```text
+cat autobot_log.txt
+run install.js --logs 30      # last 30 log lines, works on an 8 GB home server
+run autobot.ts --verbose      # mirror the log to the terminal as it happens
 ```
 
 Typical output:
@@ -118,7 +131,8 @@ blocked: gang (needs Source-File 3), bladeburner (not in this Bitnode), ...
 ### 3. Stop it
 
 ```text
-run autobot.ts --kill
+run install.js --kill     # kills every suite script on every rooted server
+run autobot.ts --kill     # same, but autobot.ts itself needs 15 GB of RAM
 ```
 
 ---
@@ -140,7 +154,10 @@ run autobot.ts --kill
 | `--ref main` | Which branch/tag to download from |
 
 `install.js` accepts the same flags plus `--open-ports` (root everything you can),
-`--no-run` (install only) and `--server n0006` (force where the bot runs).
+`--no-run` (install only), `--server n0006` (force where the bot runs), `--selftest`
+(one dry-run pass of the orchestrator), `--kill` (stop the whole suite from a small
+server - `install.js` only needs ~7 GB, `autobot.ts` needs 15 GB) and `--logs N`
+(read the log without running anything).
 
 ---
 
@@ -735,10 +752,13 @@ c_*.ts                reference copies of official contract implementations
 |---|---|
 | `Module not found: ../defs.d` | Do not import the typings. `NS` is a global type in Bitburner; see [Typing `ns`](#typing-ns-why-there-is-no-import--ns-anywhere). |
 | `FAILED to download ...` | Check the branch with `--ref main`. `raw.githubusercontent.com` allows CORS, so `wget` works; a proxy/firewall may not. |
-| `autobot.ts needs ~8 GB` | Run it on a server with at least 8 GB, or use `--only hacknet,share` until you have one. |
+| `autobot.ts needs ~15 GB` | Run it on a server with at least 15 GB of **free** RAM (upgrade home RAM, root a bigger server, or kill what is already running there), or use `--only hacknet,share` until you have one. |
 | `Dynamic RAM usage calculated to be greater than RAM allocation` | The script's declared budget is below what Bitburner actually allocates. Run `node ramgap.mjs` to see the real allocation of every module, then raise that module's `RAM_NEEDED`. This is also what happens if a module that calls the API is loaded through `ns.dynamicImport()`. |
 | `Not enough RAM` in a module | That module's header lists the exact requirement. Root a bigger server or upgrade home RAM. |
-| `Could not start autobot.ts` | `exec` requires root on the target server. Root it first, or run the installer somewhere you already have root. |
+| `Could not start autobot.ts` | `ns.exec()` returns `0` for three reasons, and the installer now prints which one applies: no root on the target, `autobot.ts` not on the target, or **not enough free RAM** - Bitburner allocates 14.15 GB for `autobot.ts`, so it needs a server with 15 GB free. Root a bigger server, kill what is running, or upgrade home RAM. |
+| `Cannot find module logger.ts`, or a module refuses to start | The in-game `install.js` is older than the repo, so it never downloaded `logger.ts` - which every module now imports statically. Refresh the installer and re-run it: `wget https://raw.githubusercontent.com/mpleier/Bitburner-Script/main/scripts/install.js install.js` then `run install.js`. |
+| `Skipped loading player scripts during startup` | The game could not compile a script, usually because an imported file is missing. Check with `ls` that `core.ts`, `logger.ts` and `types.ts` are on the server, then re-run `install.js`. |
+| A script is still creating programs (`Creating a program FTPCrack.exe`) | An old copy of a module is still running somewhere. `run install.js --kill`, then `run install.js` again. See [Programs: buy them, never create them](#programs-buy-them-never-create-them). |
 | A module shows as `blocked` | The dashboard prints why (missing Source-File, Bitnode requirement, not enough RAM). It is not a bug. |
 | `0 solved`, contracts skipped | That contract type has no solver yet — the runner prints `No solver for: ...` at the start. |
 | Contract attempts exhausted | Use `--dry-run` first to verify answers before spending attempts. |

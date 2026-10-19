@@ -908,6 +908,7 @@ function makeNs(args, host, opts) {
     },
     scp: (files, h) => true,
     kill: (file, h) => true,
+    ps: (h) => [],
     scriptRunning: (file, h) => false,
     scriptIsRunning: (file, h) => false,
     share: async () => { tick(); currentWork = "share"; return 1000; },
@@ -1637,6 +1638,7 @@ function parseArgs(argv) {
     bladesSimulacrum: false,
     tor: true,
     noPrograms: false,
+    nsArgs: null, // override the ns.args the module is run with
     sourceFiles: new Map([[2, 1], [3, 1], [4, 4], [6, 1], [8, 1], [9, 1], [10, 1], [13, 1], [14, 1], [15, 1]]),
   };
   for (let i = 0; i < argv.length; ++i) {
@@ -1656,6 +1658,7 @@ function parseArgs(argv) {
     else if (a === "--no-programs") opts.noPrograms = true;
     else if (a === "--no-sf") opts.sourceFiles = new Map();
     else if (a === "--sf") { const n = Number(argv[++i]); opts.sourceFiles.set(n, Number(argv[++i] ?? 1)); }
+    else if (a === "--ns-args") opts.nsArgs = (argv[++i] ?? "").split(/\s+/).filter(Boolean);
     else if (!a.startsWith("-")) opts.modules.push(a);
   }
   return opts;
@@ -1673,8 +1676,12 @@ async function main() {
 
   const results = [];
 
+  const defaultArgs = opts.live
+    ? ["--loops", String(opts.loops)]
+    : ["--dry-run", "--loops", String(opts.loops)];
+
   for (const file of targets) {
-    const ns = makeNs(opts.live ? ["--loops", String(opts.loops)] : ["--dry-run", "--loops", String(opts.loops)], "home", opts);
+    const ns = makeNs(opts.nsArgs ?? defaultArgs, "home", opts);
     const started = Date.now();
     let status = "ok";
     let error = null;
