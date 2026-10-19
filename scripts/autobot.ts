@@ -92,10 +92,13 @@ const SUPPORT_FILES = ["core.ts", "logger.ts", "types.ts", "contracts.ts"];
  * A module that exits straight away (karma too high, not enough money for a
  * corporation, no RAM, ...) would otherwise be restarted on every interval and
  * print the same line forever. After a couple of quick exits it is left alone
- * for COOLDOWN loops, then retried.
+ * for COOLDOWN loops, then retried - and the wait doubles each time it fails
+ * again, up to MAX_COOLDOWN_LOOPS, so a module that is blocked for months stops
+ * costing log space.
  */
 const QUICK_EXIT_LIMIT = 2;
 const COOLDOWN_LOOPS = 12;
+const MAX_COOLDOWN_LOOPS = 120;
 
 /** Per-module restart bookkeeping used by the cooldown above. */
 interface Track {
@@ -121,6 +124,7 @@ export async function main(ns: NS): Promise<void> {
   const only = parseList(core.flag(args, "--only"));
   const skip = parseList(core.flag(args, "--skip"));
   const ref = core.flag(args, "--ref") ?? DEFAULT_REF;
+  const useCooldown = !core.hasFlag(args, "--no-cooldown");
 
   const host = ns.getHostname();
   if (ns.getServerMaxRam(host) < AUTOBOT_RAM) {
@@ -153,7 +157,7 @@ export async function main(ns: NS): Promise<void> {
   const tracked = new Map<string, Track>();
 
   for (let loop = 0; loop < loops; ++loop) {
-    const muted = mutedModules(ns, tracked, loop);
+    const muted = useCooldown ? mutedModules(ns, tracked, loop) : new Set<string>();
     const plan = makePlan(ns, core, only, skip, muted);
     startPlan(ns, plan, dryRun, tracked);
     dashboard(ns, core, plan);
@@ -196,25 +200,36 @@ interface Placement {
 }
 
 /**
- * Modules that have exited QUICK_EXIT_LIMIT times in a row are muted for
- * COOLDOWN loops. Returns the set of files that must not be started this loop.
+ * Modules that have exited QUICK_EXIT_LIMIT times in a row are muted for a
+ * growing number of loops. Returns the set of files that must not be started
+ * this loop.
  */
 function mutedModules(ns: NS, tracked: Map<string, Track>, loop: number): Set<string> {
   const muted = new Set<string>();
 
   for (const [file, t] of tracked) {
     if (ns.scriptRunning(file, t.host)) {
+      // It is alive: forget the strikes and any cooldown it is sitting out.
       t.exits = 0;
+      t.mutedUntil = 0;
       continue;
     }
 
     t.exits += 1;
-    if (t.exits === QUICK_EXIT_LIMIT) {
+    if (t.exits < QUICK_EXIT_LIMIT) continue;
+
+    // Only start a new cooldown when the previous one has just run out, so the
+    // wait escalates 12 -> 24 -> 48 -> 96 -> 120 loops instead of being reset
+    // every interval.
+    if (t.mutedUntil <= loop) {
+      const wave = Math.floor((t.exits - QUICK_EXIT_LIMIT) / COOLDOWN_LOOPS) + 1;
+      const cooldown = Math.min(COOLDOWN_LOOPS * wave, MAX_COOLDOWN_LOOPS);
+      t.mutedUntil = loop + cooldown;
       logger.log(ns,
-        `${file} exited ${t.exits}x on ${t.host} without doing anything; ` +
-        `retrying in ${COOLDOWN_LOOPS} loops`);
+        `${file} exited ${t.exits}x in a row on ${t.host}; ` +
+        `skipping it for ${cooldown} loops (cooldown wave ${wave})`);
     }
-    if (t.exits >= QUICK_EXIT_LIMIT) t.mutedUntil = loop + COOLDOWN_LOOPS;
+
     if (t.mutedUntil > loop) muted.add(file);
   }
 
@@ -297,7 +312,15 @@ function startPlan(ns: NS, plan: Placement[], dryRun: boolean, tracked: Map<stri
       logger.log(ns, `could not start ${p.module.file} on ${p.host}`);
     } else {
       logger.log(ns, `started ${p.module.file} on ${p.host} (pid ${pid}, ${p.module.ram} GB)`);
-      tracked.set(p.module.file, { host: p.host, exits: 0, mutedUntil: 0 });
+      // Keep the strike count: this module has still exited quickly on every
+      // previous loop, and that is what the cooldown is built from. Resetting
+      // it here would make the cooldown unreachable.
+      const prev = tracked.get(p.module.file);
+      tracked.set(p.module.file, {
+        host: p.host,
+        exits: prev ? prev.exits : 0,
+        mutedUntil: prev ? prev.mutedUntil : 0,
+      });
       started += 1;
     }
   }

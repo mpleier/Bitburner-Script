@@ -149,6 +149,7 @@ run autobot.ts --kill     # same, but autobot.ts itself needs 15 GB of RAM
 | `--only hacking,hacknet` | Run only these modules |
 | `--skip corporation,go` | Exclude these modules |
 | `--status` | Print the dashboard once and exit |
+| `--no-cooldown` | Restart a module on every interval even if it keeps exiting straight away |
 | `--kill` | Kill every module the suite started, then exit |
 | `--logs 50` | Dump the last 50 lines of the log file to the terminal and exit |
 | `--log mybot.txt` | Write the log to a different file |
@@ -786,7 +787,7 @@ c_*.ts                reference copies of official contract implementations
 | A script is still creating programs (`Creating a program FTPCrack.exe`) | An old copy of a module is still running somewhere. `run install.js --kill`, then `run install.js` again. See [Programs: buy them, never create them](#programs-buy-them-never-create-them). |
 | `createCorporation failed even though canCreateCorporation said Success` | Self-funding a corporation costs **$150 billion** (`costOfCreatingCorporation`), and `canCreateCorporation()` only checks SF3/BitNode - it never looks at your money. `corporation.ts` now checks the balance itself and prints the shortfall instead of this confusing line. Seed money is free but only legal in BitNode 3. |
 | `Gangs need karma <= -54000 outside BitNode 2` | Not a bug: outside BitNode 2 a gang only forms once karma is at or below -54000. `crime.ts` drives karma down; let it run. |
-| The same message printed every interval | `autobot.ts` now mutes a module that exits straight away: after 2 quick exits it is left alone for 12 loops (60 s by default) and then retried, so blocked subsystems do not flood the terminal. |
+| The same message printed every interval | `autobot.ts` mutes a module that exits straight away: after 2 quick exits it is left alone for 12 loops (60 s by default), then retried, and the wait doubles (12 → 24 → 48 → 96 → 120 loops) every time it fails again. The dashboard lists it as `skipped: cooldown: it keeps exiting immediately`. Use `--no-cooldown` to disable this. |
 | A module shows as `blocked` | The dashboard prints why (missing Source-File, Bitnode requirement, not enough RAM, cooldown). It is not a bug. |
 | `0 solved`, contracts skipped | That contract type has no solver yet — the runner prints `No solver for: ...` at the start. |
 | Contract attempts exhausted | Use `--dry-run` first to verify answers before spending attempts. |
