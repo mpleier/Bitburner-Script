@@ -16,12 +16,13 @@ That single command downloads 23 files from GitHub, picks the best server, and s
 
 | Module | RAM | Requires | What it does |
 |---|---:|---|---|
-| `autobot.ts` | 16 GB | — | Orchestrator: installs, plans, places, starts, monitors |
-| `core.ts` | 11.3 GB* | — | Shared helpers (BFS scan, rooting, formatting, Bladeburner/work conflict guards), statically imported by every module |
+| `autobot.ts` | 17 GB | — | Orchestrator: installs, plans, places, starts, monitors |
+| `core.ts` | 11.9 GB* | — | Shared helpers (BFS scan, rooting, formatting, Bladeburner/work conflict guards), statically imported by every module |
 | `logger.ts` | 0.05 GB* | — | Routes every module's output into a log file instead of the terminal |
 | `types.ts` | 0 GB | — | Shared type definitions (type-only import, erased by the transpiler) |
-| `hacking.ts` | 35 GB | — | Buys programs on the darkweb, roots servers, leaves backdoors, weaken → grow → hack, upgrades home RAM |
-| `hacknet.ts` | 21 GB | — | Buys/upgrades nodes, spends hash on the best thing |
+| `state.ts` | 2.2 GB* | — | The shared ledger: which server has which module, who holds a work slot, what each module is waiting for |
+| `hacking.ts` | 36 GB | — | Buys programs on the darkweb, roots servers, leaves backdoors, weaken → grow → hack, upgrades home RAM |
+| `hacknet.ts` | 24 GB | — | Buys/upgrades nodes, spends hash on the best thing |
 | `contractRunner.ts` | 29 GB | — | Finds every `*.cct` on the network and solves it with 24 built-in solvers |
 | `contracts.ts` | 0 GB* | — | The solvers themselves (they make no API calls, so `dynamicImport` is safe) |
 | `factions.ts` | 55 GB | — | Work for factions, donate, buy augmentations |
@@ -30,25 +31,34 @@ That single command downloads 23 files from GitHub, picks the best server, and s
 | `gang.ts` | 46 GB | BN2 / SF2 | Recruits, assigns optimal tasks, buys weapons, ascends |
 | `bladeburner.ts` | 78 GB | BN6-7 / SF6 | City selection, contracts/ops, skill-point spending |
 | `corporation.ts` | 462 GB | BN3 / SF3 | Self-managing corporation: divisions, offices, hires, materials, research |
-| `stock.ts` | 45 GB | BN8 / SF8 | Tick-based trading with position sizing |
+| `stock.ts` | 46 GB | BN8 / SF8 | Tick-based trading with position sizing |
 | `stanek.ts` | 26 GB | BN13 / SF13 | Greedy fragment packing with rotation, charges everything |
 | `sleeves.ts` | 48 GB | BN10 / SF10 | Shock recovery → sync → stat-matched task per sleeve |
 | `go.ts` | 60 GB | BN14 / SF14 | Plays Go using atari/liberty analysis, collects rewards |
 | `infiltration.ts` | 27 GB | — | Ranks SP500 locations by expected value, infiltrates the best |
-| `darknet.ts` | 26 GB | BN15 / SF15 | Harvests stasis links, probes neighbours, heartbleeds logs |
+| `darknet.ts` | 27 GB | BN15 / SF15 | Harvests stasis links, probes neighbours, heartbleeds logs |
 | `share.ts` | 6 GB | — | Fills leftover RAM with `share()` for faction work |
+| `ascend.ts` | 17 GB | — | The endgame: install everything, then reset for the source files. **Off by default** — enable with `--ascend` |
 | `casino.ts` | 35 GB | — | Blackjack at the Iker Molina Casino through the browser UI; on by default, disable with `--no-casino`, and it stops for good once the house kicks us out |
-| `casino-policy.ts` | 0 GB | — | The casino's decision tables (wager sizing, blackjack strategy, reload logic) - no API calls, so it is unit-testable offline |
+| `casino-policy.ts` | 1.6 GB | — | The casino's decision tables (wager sizing, blackjack strategy, reload logic) - no API calls, so it is unit-testable offline |
+| `focus-policy.ts` | 1.6 GB | — | Who gets the one `Player.currentWork` slot, and who gets to use the browser UI |
+| `spending-policy.ts` | 1.6 GB | — | How much of the bankroll each subsystem is allowed to touch |
+| `bitnode-policy.ts` | 1.6 GB | — | Which BitNode to replay next, ranked by the source files it unlocks |
 
-\* `core.ts` is **statically** imported, so its API calls are added to every module that
-imports it. `contracts.ts` is the only `ns.dynamicImport()` in the suite, and that is safe
-only because it makes no API calls at all. Every module needs `core.ts`, `types.ts` and
-`contracts.ts` on the same server — `autobot.ts` `scp`s them there automatically.
+\* `core.ts`, `state.ts` and the four policy modules are **statically** imported, so their
+API calls are added to every module that imports them. The policy modules make no API
+calls at all, so importing one costs only the 1.6 GB base script cost. `contracts.ts` is
+the only `ns.dynamicImport()` in the suite, and that is safe only because it makes no API
+calls at all. Every module needs `core.ts`, `types.ts` and `contracts.ts` on the same
+server — `autobot.ts` `scp`s them there automatically.
 
-Total RAM if every module ran at once: **~1,095 GB** (with Source-File 4 installed). Without
-SF4 the Singularity API costs 16× more, so the Singularity-heavy modules need far more RAM
-than the table shows. In practice the orchestrator only starts the subsystems that are
-actually unlocked, and it refuses to start anything that would over-commit a server.
+Total declared budget if every module ran at once: **~1,127 GB** (the game actually charges
+~1,111 GB of that; the difference is the headroom each module keeps so it can never be
+"Dynamic RAM usage calculated to be greater than RAM allocation" - see `npm run ram`). With
+Source-File 4 installed the Singularity API costs 16× less, so the Singularity-heavy modules
+need far less RAM than the table shows. In practice the orchestrator only starts the
+subsystems that are actually unlocked, and it refuses to start anything that would
+over-commit a server.
 
 ---
 
@@ -164,6 +174,7 @@ run autobot.ts --kill     # same, but autobot.ts itself needs 16 GB of RAM
 | `--only hacking,hacknet` | Run only these modules |
 | `--skip corporation,go` | Exclude these modules |
 | `--no-casino` | Turn `casino.ts` off. It runs by default, and while it runs the orchestrator mutes `crime.ts`, `jobs.ts`, `factions.ts`, `bladeburner.ts` and `share.ts` |
+| `--ascend` | Turn `ascend.ts` on. It is **off by default**: the module installs every augmentation you can afford and then resets the run to collect source files. Only flip it once you are confident the rest of the suite is carrying you |
 | `--status` | Print the dashboard once and exit |
 | `--no-cooldown` | Restart a module on every interval even if it keeps exiting straight away |
 | `--kill` | Kill every module the suite started, then exit |
@@ -244,6 +255,91 @@ your RAM over time.
 
 ---
 
+## The three policies
+
+Everything that used to be a hardcoded rule inside `autobot.ts` now lives in a small
+module with no API calls, so it can be unit-tested offline and changed without touching
+the orchestrator.
+
+### `focus-policy.ts` — who gets to work
+
+`Player.currentWork` is a single slot. Only one activity can occupy it, and the game
+refuses to queue things you are not allowed to do (a job you never applied for, a faction
+you never joined, Bladeburner in a BitNode without SF6). The policy answers three
+questions:
+
+1. **Do these two activities fight?** `conflictsWith(a, b)` returns true for any pair of
+   work-slot activities (there is only one slot) and for a UI driver paired with any work
+   activity (the work page replaces the browser page). `blockedBy(activity)` lists
+   everything `activity` pushes out.
+2. **Who wins the slot?** `prioritizeActivities()` puts the UI drivers first. The casino
+   needs the browser, and the browser is not a work slot — so a casino run does not
+   compete with crime or a job for the slot, but a *muted* module must not be started at
+   all. `allowedActivities(candidates)` then resolves the full set, dropping anything
+   that collides with an activity already claimed.
+3. **Does this module need the player at all?** `focusNeeds(activity)` is true only for
+   the work-slot and UI activities; `gang.ts`, `sleeves.ts`, `go.ts` and the rest are
+   never muted. `focusReason()` produces the sentence the dashboard prints.
+
+`autobot.ts` publishes the resolved focus into `state.ts` every interval via
+`publishFocus()`, so every other module can read what the player is currently doing
+instead of guessing.
+
+### `spending-policy.ts` — who gets the money
+
+Hacknet, the aug shop, gang equipment and a corporation all draw from the same bankroll,
+and each of them used to spend on its own "is it cheap relative to my cash" rule. That
+works until four modules decide simultaneously that something is cheap.
+
+`allowance(cash, subsystem)` returns the slice each subsystem may spend this interval:
+a 25% reserve is held back first, then the remainder is capped per subsystem — hacknet 20%,
+gang 15%, augmentations 50%, corporation 30%, stock 10%, casino 5%, darknet 5%, infiltration
+2%, contracts 0%. Those weights deliberately sum to more than 1: they are **ceilings**, not
+a partition. No subsystem is allowed to take more than its ceiling, but two subsystems that
+both stay under their ceiling can still both spend, which is what you want — a module that
+is capped by someone else's budget would stall for reasons it cannot see.
+
+`hacknet.ts`, `factions.ts`, `gang.ts` and `corporation.ts` all track `spent` locally and
+stop when their budget is exhausted — locally, because `ns.getPlayer().money` does not move
+in `--dry-run`, so a budget that relied on the game updating it would be wrong exactly when
+you most want to test.
+
+### `bitnode-policy.ts` — which BitNode to replay
+
+`nextBitnode(owned, goal)` filters to the BitNodes whose source file you do not own yet,
+scores them (+10 if the node serves the goal you asked for, +4 if it unlocks anything the
+suite can use, minus difficulty, minus a small tie-breaker on the node number) and returns
+the best one. `shouldAscend(readyCount, threshold)` is the "is this batch of augmentations
+big enough to justify a reset" test, and `ascendThreshold(owned)` makes that threshold
+smaller early in a run, when one augmentation is worth more. Both the dashboard in
+`autobot.ts` and `ascend.ts` itself use these.
+
+---
+
+## `ascend.ts`: the endgame, off by default
+
+`ascend.ts` is the only module in the suite that can *end a run*. It watches the augmentation
+queue, and once enough augmentations are sitting in it to justify a reset, it calls
+`installAugmentations("autobot.ts")` - which soft-resets the BitNode and hands you the source
+files. Because a reset throws away servers, programs and money, the module is **not started
+unless you pass `--ascend`**; without that flag it runs harmlessly and just reports what it
+would do.
+
+Before installing it checks two things: that no Bladeburner action is mid-flight (a reset
+cancels it), and that it holds the `ascend_lock` in `state.ts` so two scripts can never
+trigger a reset in the same tick.
+
+```text
+run autobot.ts --ascend              # arm it through the orchestrator
+run ascend.ts --dry-run              # inspect what it would do, standalone
+run ascend.ts --ascend --batch 8    # arm it, require 8 queued augs before resetting
+```
+
+Its RAM cost is 17 GB, which `npm run ram` confirms against the real API table (16.95 GB
+allocated, 17 GB declared).
+
+---
+
 ## Per-module flags
 
 Every module can be run standalone. All of them accept `--dry-run`, `--loops N`,
@@ -266,6 +362,7 @@ Every module can be run standalone. All of them accept `--dry-run`, `--loops N`,
 | `infiltration.ts` | `--top 5`, `--rep-only` |
 | `darknet.ts` | `--max-attempts 5` |
 | `casino.ts` | `--max-rounds 1000`, `--simple-strategy`, `--reload-after-losses 10`, `--seed 300000`, `--earn-seed`, `--save-sleep 10`, `--click-sleep 5`, `--find-sleep 0` |
+| `ascend.ts` | `--ascend` (arm the reset), `--batch 8` (augmentations needed before a reset is worth it), `--interval 5000` |
 
 Example — solve contracts only, on a specific server:
 
@@ -856,12 +953,14 @@ scripts/
   install.js          in-game bootstrap (the only file you paste manually)
   core.ts             shared helpers
   types.ts            shared types
+  state.ts            shared timestamped state files + locks
   contracts.ts        24 contract solvers
   contractRunner.ts   contract discovery + submission
   hacking.ts hacknet.ts factions.ts jobs.ts crime.ts gang.ts
   bladeburner.ts corporation.ts stock.ts stanek.ts sleeves.ts
-  go.ts infiltration.ts darknet.ts share.ts
-  casino.ts casino-policy.ts   blackjack driver + its pure decision tables
+  go.ts infiltration.ts darknet.ts share.ts ascend.ts
+  casino.ts casino-policy.ts        blackjack driver + its pure decision tables
+  focus-policy.ts spending-policy.ts bitnode-policy.ts   the pure rules
   _backdoortest.ts    installBackdoor access-gate test (runs against the mock)
   _hacknettest.ts     hacknet-node filtering test (runs against the mock)
 

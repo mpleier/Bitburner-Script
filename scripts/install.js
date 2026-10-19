@@ -66,11 +66,12 @@ const SELF_RAM = 7;
 
 /** Every file the suite needs, in download order. */
 const FILES = [
-  "core.ts", "logger.ts", "types.ts", "contracts.ts", "autobot.ts",
+  "core.ts", "logger.ts", "types.ts", "state.ts", "contracts.ts", "autobot.ts",
+  "focus-policy.ts", "spending-policy.ts", "bitnode-policy.ts",
   "hacking.ts", "hacknet.ts", "contractRunner.ts", "factions.ts",
   "jobs.ts", "crime.ts", "gang.ts", "bladeburner.ts",
   "corporation.ts", "stock.ts", "stanek.ts", "sleeves.ts",
-  "go.ts", "infiltration.ts", "darknet.ts", "share.ts",
+  "go.ts", "infiltration.ts", "darknet.ts", "share.ts", "ascend.ts",
   "casino.ts", "casino-policy.ts",
 ];
 

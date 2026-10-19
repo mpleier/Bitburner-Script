@@ -139,6 +139,10 @@ const SCRIPTS = path.join(process.cwd(), "scripts");
 const MODULES = [
   "core.ts",
   "logger.ts",
+  "state.ts",
+  "focus-policy.ts",
+  "spending-policy.ts",
+  "bitnode-policy.ts",
   "hacking.ts",
   "_backdoortest.ts",
   "_hacknettest.ts",
@@ -161,6 +165,7 @@ const MODULES = [
   "contractRunner.ts",
   "casino-policy.ts",
   "casino.ts",
+  "ascend.ts",
   "autobot.ts",
   "install.js",
 ];
@@ -859,6 +864,14 @@ let casinoWinnings = opts.casinoWinnings ?? 0;
       for (const line of text.split("\n")) if (line.trim()) log.push(`[log] ${line}`);
     },
     read: (filename) => files[String(filename)] ?? "",
+    // ns.rm() deletes a file on the server and returns whether it existed
+    // (src/NetscriptFunctions.ts -> rm). state.ts uses it to release locks.
+    rm: (filename) => {
+      const pathName = String(filename);
+      if (!(pathName in files)) return false;
+      delete files[pathName];
+      return true;
+    },
     getFileMetadata: (filename) =>
       files[String(filename)] ? { name: String(filename), size: files[String(filename)].length } : null,
 
@@ -1840,14 +1853,166 @@ async function checkCasinoBan() {
   if (/casino\.ts\s+skipped: the casino kicked us out/.test(normal)) {
     failures.push("autobot.ts blocked the casino without a ban");
   }
-  if (!/focus conflict: the casino drives the UI/.test(normal)) {
+  if (!/focus conflict: casino drives the browser UI/.test(normal)) {
     failures.push("autobot.ts lost the focus-conflict mute for a normal casino run");
   }
 
   return failures;
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Pure policy unit checks (no ns API involved, so they run offline)          */
+/* -------------------------------------------------------------------------- */
+
+function mkExpect(failures) {
+  return (label, actual, expected) => {
+    const same = typeof expected === "object" ? JSON.stringify(actual) === JSON.stringify(expected) : actual === expected;
+    if (!same) failures.push(`${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+  };
+}
+
+async function checkFocusPolicy() {
+  const focus = await import(pathToFileURL(path.join(SCRIPTS, "focus-policy.ts")).href);
+  const failures = [];
+  const expect = mkExpect(failures);
+
+  expect("crime vs jobs conflict", focus.conflictsWith("crime", "jobs"), true);
+  expect("casino vs crime conflict", focus.conflictsWith("casino", "crime"), true);
+  expect("crime vs casino conflict", focus.conflictsWith("crime", "casino"), true);
+  expect("gang vs sleeves conflict", focus.conflictsWith("gang", "sleeves"), false);
+  expect("gang vs crime conflict", focus.conflictsWith("gang", "crime"), false);
+  expect("a subsystem never fights itself", focus.conflictsWith("crime", "crime"), false);
+  expect("blockedBy(casino) has 5 work activities", focus.blockedBy("casino").length, 5);
+  expect("ascend needs no work slot", focus.focusNeeds("ascend"), false);
+  expect("ascend is not pushed out by the casino", focus.conflictsWith("ascend", "casino"), false);
+
+  const first = focus.allowedActivities(["casino", "crime", "jobs", "gang", "sleeves"]);
+  expect("casino keeps the screen", first.has("casino"), true);
+  expect("crime is muted", first.has("crime"), false);
+  expect("jobs is muted", first.has("jobs"), false);
+  expect("gang is unaffected", first.has("gang"), true);
+  expect("sleeves is unaffected", first.has("sleeves"), true);
+
+  const second = focus.allowedActivities(["crime", "jobs", "casino"]);
+  expect("the UI driver gets first refusal", second.has("casino"), true);
+  expect("crime loses to the casino", second.has("crime"), false);
+  expect("jobs loses to the casino", second.has("jobs"), false);
+
+  const third = focus.allowedActivities(["crime", "jobs", "gang", "sleeves"]);
+  expect("crime wins when no UI driver is present", third.has("crime"), true);
+  expect("jobs loses to crime", third.has("jobs"), false);
+  expect("gang is unaffected", third.has("gang"), true);
+
+  expect("gang needs no focus", focus.focusNeeds("gang"), false);
+  expect("crime needs focus", focus.focusNeeds("crime"), true);
+  expect("prioritizeActivities puts the UI driver first",
+    JSON.stringify(focus.prioritizeActivities(["crime", "casino", "gang"])),
+    JSON.stringify(["casino", "crime", "gang"]));
+  expect("prioritizeActivities keeps the rest in order",
+    JSON.stringify(focus.prioritizeActivities(["gang", "crime", "jobs"])),
+    JSON.stringify(["gang", "crime", "jobs"]));
+  expect("reason names the culprit", /crime/.test(focus.focusReason("jobs", ["crime"])), true);
+  expect("reason names the UI", /browser UI/.test(focus.focusReason("crime", ["casino"])), true);
+
+  return failures;
+}
+
+async function checkSpendingPolicy() {
+  const policy = await import(pathToFileURL(path.join(SCRIPTS, "spending-policy.ts")).href);
+  const failures = [];
+  const expect = mkExpect(failures);
+
+  const money = 1_000_000;
+  expect("reserve is 25%", policy.reserve(money), 250_000);
+  expect("augs allowance", policy.allowance(money, "augs"), 375_000);
+  expect("unknown subsystem uses the default", policy.allowance(money, "mystery"), 75_000);
+  expect("negative money clamps to zero", policy.allowance(-5, "augs"), 0);
+  expect("within allowance", policy.canAfford(money, 300_000, "augs"), true);
+  expect("over allowance", policy.canAfford(money, 400_000, "augs"), false);
+  expect("the reserve is never touched", policy.canAfford(money, 900_000, "augs"), false);
+  expect("free is always affordable", policy.canAfford(0, 0, "augs"), true);
+
+  const plan = policy.spendPlan(money, 400_000, "augs");
+  expect("plan rejects the overspend", plan.ok, false);
+  expect("plan explains why", /budget/.test(plan.reason), true);
+  expect("plan reports the limit", plan.limit, 375_000);
+  expect("headroom after a purchase", policy.headroom(money, 100_000, "hacknet"), 50_000);
+
+  // Edge cases: the ceilings are ceilings, not a partition.
+  expect("weights sum above 1 on purpose",
+    Object.values(policy.ALLOWANCES).reduce((a, b) => a + b, 0) > 1, true);
+  expect("tiny bank still leaves a hacknet slice", policy.allowance(100, "hacknet"), 15);
+  expect("zero bank buys nothing", policy.allowance(0, "hacknet"), 0);
+  expect("contracts never spend", policy.allowance(money, "contracts"), 0);
+  expect("contracts still accept a free solve", policy.canAfford(money, 0, "contracts"), true);
+  expect("two subsystems can both spend under their own ceiling",
+    policy.canAfford(money, 100_000, "hacknet") && policy.canAfford(money, 100_000, "gang"),
+    true);
+  expect("but neither can exceed its own ceiling",
+    policy.canAfford(money, 200_000, "hacknet"), false);
+  expect("reserve survives a rich player", policy.canAfford(1_000_000_000, 999_999_999, "augs"), false);
+
+  return failures;
+}
+
+async function checkBitnodePolicy() {
+  const policy = await import(pathToFileURL(path.join(SCRIPTS, "bitnode-policy.ts")).href);
+  const failures = [];
+  const expect = mkExpect(failures);
+
+  expect("25 bitnodes listed", policy.BITNODES.length, 25);
+  expect("BN2 unlocks gangs", policy.BITNODES[1].unlocks.includes("gang"), true);
+  expect("BN15 unlocks darknet", policy.BITNODES[14].unlocks.includes("darknet"), true);
+  expect("bitnode n hands out source file n", policy.sourceFileOf(13), 13);
+  expect("owning 1-3 leaves 22 nodes", policy.unownedBitnodes([1, 2, 3]).length, 22);
+  expect("duplicates in the owned list are ignored", policy.unownedBitnodes([1, 1, 2]).length, 23);
+  expect("gang goal picks BN2", policy.nextBitnode([1], "gang").id, 2);
+  expect("no goal picks the easiest node", policy.nextBitnode([], "any").id, 1);
+  expect("nothing left to unlock", policy.nextBitnode(Array.from({ length: 25 }, (_, i) => i + 1), "any"), null);
+  expect("early threshold", policy.ascendThreshold([]), 3);
+  expect("mid threshold", policy.ascendThreshold([1, 2, 3]), 5);
+  expect("late threshold", policy.ascendThreshold([1, 2, 3, 4, 5]), 8);
+  expect("a full batch is worth a reset", policy.shouldAscend(5, 5), true);
+  expect("one aug is not worth a reset", policy.shouldAscend(1, 5), false);
+  expect("summary is readable", /BN2 Rise of the Underworld/.test(policy.bitnodeSummary(policy.BITNODES[1])), true);
+
+  return failures;
+}
+
+async function checkState() {
+  const state = await import(pathToFileURL(path.join(SCRIPTS, "state.ts")).href);
+  const ns = makeNs([], "home", { money: 0, ram: 16, bitnode: 1, sourceFiles: new Map(), programs: new Set() });
+  const failures = [];
+  const expect = mkExpect(failures);
+
+  expect("state file name", state.stateFile("crime"), "state_crime.json");
+  expect("unsafe characters are stripped", state.stateFile("focus lock!"), "state_focus_lock_.json");
+
+  const record = state.writeState(ns, "focus", { allowed: ["crime"] }, 1000);
+  expect("record has a timestamp", typeof record.at === "number", true);
+  expect("record expires", record.expiresAt === record.at + 1000, true);
+  expect("fresh value is readable", JSON.stringify(state.readFresh(ns, "focus")), JSON.stringify({ allowed: ["crime"] }));
+  expect("not stale yet", state.isStale(ns, "focus", record.at), false);
+  expect("stale after the ttl", state.isStale(ns, "focus", record.expiresAt + 1), true);
+  expect("expired value reads as null", state.readFresh(ns, "focus", record.expiresAt + 1), null);
+
+  expect("first claim succeeds", state.claim(ns, "ascend_lock", 1000).ok, true);
+  expect("reclaiming our own lock succeeds", state.claim(ns, "ascend_lock", 1000).ok, true);
+  state.release(ns, "ascend_lock");
+  expect("release deletes the file", state.readState(ns, "ascend_lock"), null);
+  expect("a released lock can be claimed again", state.claim(ns, "ascend_lock", 1000).ok, true);
+  expect("missing file reads as null", state.readState(ns, "never_written"), null);
+
+  // A legacy/hand-written file is wrapped so it reads as expired, never as a live claim.
+  ns.write("state_legacy.json", "{\"hello\":\"world\"}");
+  expect("legacy file is wrapped as expired", state.readState(ns, "legacy").expiresAt, 0);
+  expect("legacy file is stale", state.isStale(ns, "legacy"), true);
+
+  return failures;
+}
+
 async function main() {
+
   const opts = parseArgs(process.argv.slice(2));
   ENUMS = parseEnums(path.join(process.cwd(), "defs.d.ts"));
   SERVERS.home.maxRam = opts.ram;
@@ -1870,6 +2035,43 @@ async function main() {
   } else {
     console.log("casino ban checks: all passed (a kick-out stops casino.ts and the scheduler)");
   }
+
+  const focusFailures = await checkFocusPolicy();
+  if (focusFailures.length) {
+    console.log(`focus-policy unit checks: ${focusFailures.length} failure(s)`);
+    for (const failure of focusFailures) console.log(`  ${failure}`);
+    process.exitCode = 1;
+  } else {
+    console.log("focus-policy unit checks: all passed (one work slot, one UI driver)");
+  }
+
+  const spendingFailures = await checkSpendingPolicy();
+  if (spendingFailures.length) {
+    console.log(`spending-policy unit checks: ${spendingFailures.length} failure(s)`);
+    for (const failure of spendingFailures) console.log(`  ${failure}`);
+    process.exitCode = 1;
+  } else {
+    console.log("spending-policy unit checks: all passed (25% reserve, per-subsystem ceilings)");
+  }
+
+  const bitnodeFailures = await checkBitnodePolicy();
+  if (bitnodeFailures.length) {
+    console.log(`bitnode-policy unit checks: ${bitnodeFailures.length} failure(s)`);
+    for (const failure of bitnodeFailures) console.log(`  ${failure}`);
+    process.exitCode = 1;
+  } else {
+    console.log("bitnode-policy unit checks: all passed (source files drive the reset order)");
+  }
+
+  const stateFailures = await checkState();
+  if (stateFailures.length) {
+    console.log(`state unit checks: ${stateFailures.length} failure(s)`);
+    for (const failure of stateFailures) console.log(`  ${failure}`);
+    process.exitCode = 1;
+  } else {
+    console.log("state unit checks: all passed (at/pid/expiresAt guards, claim and release)");
+  }
+
 
   const targets = opts.modules.length > 0
     ? opts.modules.map((m) => (/\.[a-z]+$/i.test(m) ? m : `${m}.ts`))

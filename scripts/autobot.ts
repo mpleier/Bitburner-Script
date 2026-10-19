@@ -15,9 +15,9 @@
  * RAM cost (GB), from the official RamCostGenerator:
  *   base 1.6 | scan 0.2 | ls 0.2 | getServer 2 | getHostname 0.05
  *   getServerMaxRam 0.05 | getServerUsedRam 0.05 | hasRootAccess 0.05
- *   getHackingLevel 0.05 | getPlayer 0.5 | getMoneySources 0.5 | kill 0.2
- *   scp 0.6 | exec 1.3 | sleep 0
- *   => 8.35 GB of its own calls, 15.15 GB with core.ts. Budget 16 GB.
+ *   getHackingLevel 0.05 | getPlayer 0.5 | getMoneySources 0.5 | kill 0.5
+ *   scp 0.6 | exec 1.3 | sleep 0 | write 0 | read 0 | rm 0.6
+ *   => 15.75 GB with core.ts and state.ts. Budget 17 GB.
  *
  * Usage
  *   run autobot.ts --install                 download everything, then run
@@ -26,6 +26,7 @@
  *   run autobot.ts --only hacking,hacknet    run a subset
  *   run autobot.ts --skip corporation        exclude a subset
  *   run autobot.ts --no-casino             keep the blackjack bot off
+ *   run autobot.ts --ascend                let ascend.ts decide when to reset
  *   run autobot.ts --status                  print the dashboard and exit
  *   run autobot.ts --kill                    stop every module the bot started
  */
@@ -39,15 +40,23 @@
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
 import * as logger from "./logger.ts";
-// casino-policy.ts makes no API calls at all, so importing it costs 0 GB and
-// keeps the casino's ban threshold in one place.
+// casino-policy.ts, focus-policy.ts, spending-policy.ts and bitnode-policy.ts
+// make no API calls at all, so importing them costs 0 GB and keeps the rules
+// for the casino, the focus locks and the money budget in one place.
 import * as policy from "./casino-policy.ts";
+import * as focus from "./focus-policy.ts";
+import * as spending from "./spending-policy.ts";
+import * as bitnodes from "./bitnode-policy.ts";
+// state.ts is the only new module that touches the API (write/read/rm), and it
+// is what lets the scheduler hand focus locks to the modules it starts.
+import * as state from "./state.ts";
 
 const REPO = "mpleier/Bitburner-Script";
 const DEFAULT_REF = "main";
 
-/** RAM the orchestrator itself needs (15.15 GB per `npm run ram`). Budget 16 GB. */
-const AUTOBOT_RAM = 16;
+/** RAM the orchestrator itself needs (15.75 GB per `npm run ram`). Budget 17 GB. */
+const AUTOBOT_RAM = 17;
+
 
 interface Module {
   /** Script filename. */
@@ -66,7 +75,10 @@ interface Module {
   note: string;
   /** Modules with optOut: true run by default and are disabled with --no-<subsystem>. */
   optOut?: boolean;
+  /** Modules with optIn: true are off by default and enabled with --<subsystem>. */
+  optIn?: boolean;
 }
+
 
 /**
  * The whole suite. RAM figures are the *real* allocation Bitburner computes for
@@ -74,8 +86,8 @@ interface Module {
  * by every module). `npm run ram` regenerates them from RamCostGenerator.ts.
  */
 const MODULES: Module[] = [
-  { file: "hacking.ts",        ram: 35,  subsystem: "hacking",      priority: 1,  threads: 1, args: [], note: "root servers, backdoors, weaken/grow/hack, home RAM" },
-  { file: "hacknet.ts",        ram: 21,  subsystem: "hacknet",      priority: 2,  threads: 1, args: [], note: "buy/upgrade hacknet nodes, spend hash" },
+  { file: "hacking.ts",        ram: 36,  subsystem: "hacking",      priority: 1,  threads: 1, args: [], note: "root servers, backdoors, weaken/grow/hack, home RAM" },
+  { file: "hacknet.ts",        ram: 24,  subsystem: "hacknet",      priority: 2,  threads: 1, args: [], note: "buy/upgrade hacknet nodes, spend hash" },
   { file: "contractRunner.ts", ram: 29,  subsystem: "contracts",    priority: 3,  threads: 1, args: ["--loop"], note: "find and solve every coding contract" },
   { file: "factions.ts",       ram: 55,  subsystem: "factions",     priority: 4,  threads: 1, args: [], note: "work for factions, donate, buy augmentations" },
   { file: "jobs.ts",           ram: 24,  subsystem: "jobs",         priority: 5,  threads: 1, args: [], note: "apply for the best-paying job" },
@@ -83,14 +95,15 @@ const MODULES: Module[] = [
   { file: "gang.ts",           ram: 46,  subsystem: "gang",         priority: 7,  threads: 1, args: [], note: "gang member task assignment + ascend" },
   { file: "bladeburner.ts",    ram: 78,  subsystem: "bladeburner",  priority: 8,  threads: 1, args: [], note: "Bladeburner contracts, ops, skill points" },
   { file: "corporation.ts",    ram: 462, subsystem: "corporation",  priority: 9,  threads: 1, args: [], note: "run a corporation (needs a big server)" },
-  { file: "stock.ts",          ram: 45,  subsystem: "stock",        priority: 10, threads: 1, args: [], note: "tick-based stock trading" },
+  { file: "stock.ts",          ram: 46,  subsystem: "stock",        priority: 10, threads: 1, args: [], note: "tick-based stock trading" },
   { file: "stanek.ts",         ram: 26,  subsystem: "stanek",       priority: 11, threads: 1, args: [], note: "greedy Stanek fragment packing + charging" },
   { file: "sleeves.ts",        ram: 48,  subsystem: "sleeves",      priority: 12, threads: 1, args: [], note: "shock, sync, then stat-matched sleeve work" },
   { file: "go.ts",             ram: 60,  subsystem: "go",           priority: 13, threads: 1, args: [], note: "Bitburner Go: play optimally, collect rewards" },
   { file: "infiltration.ts",   ram: 27,  subsystem: "infiltration", priority: 14, threads: 1, args: [], note: "SP500 infiltration for materials" },
-  { file: "darknet.ts",        ram: 26,  subsystem: "darknet",      priority: 15, threads: 1, args: [], note: "BN10 Darknet: harvest stasis links" },
+  { file: "darknet.ts",        ram: 27,  subsystem: "darknet",      priority: 15, threads: 1, args: [], note: "BN10 Darknet: harvest stasis links" },
   { file: "share.ts",          ram: 6,   subsystem: "share",        priority: 16, threads: 1, args: [], note: "fill leftover RAM with share() for faction work" },
   { file: "casino.ts",         ram: 35,  subsystem: "casino",       priority: 17, threads: 1, args: [], optOut: true, note: "blackjack save-scumming through the browser UI (disable with --no-casino)" },
+  { file: "ascend.ts",         ram: 17,  subsystem: "ascend",       priority: 18, threads: 1, args: [], optIn: true, note: "install augmentations and reset when a batch is ready (enable with --ascend)" },
 ];
 
 /**
@@ -99,13 +112,25 @@ const MODULES: Module[] = [
  * replace the casino page with the work page, so they must not run at the same
  * time. `sleeves.ts`, `go.ts` and `infiltration.ts` are safe: they work through
  * the API without touching the player's work slot.
+ *
+ * The conflict matrix itself lives in focus-policy.ts and is resolved by
+ * focus.allowedActivities() below; nothing here duplicates it.
  */
-const UI_FOCUS_CONFLICTS: Record<string, string[]> = {
-  casino: ["crime", "jobs", "factions", "bladeburner", "share"],
-};
+
 
 /** Files every module needs next to it. */
-const SUPPORT_FILES = ["core.ts", "logger.ts", "types.ts", "contracts.ts", "casino-policy.ts"];
+const SUPPORT_FILES = [
+  "core.ts",
+  "logger.ts",
+  "types.ts",
+  "contracts.ts",
+  "casino-policy.ts",
+  "focus-policy.ts",
+  "spending-policy.ts",
+  "bitnode-policy.ts",
+  "state.ts",
+];
+
 
 /**
  * A module that exits straight away (karma too high, not enough money for a
@@ -126,7 +151,10 @@ interface Track {
   exits: number;
   /** Loop number before which the module must not be re-started. */
   mutedUntil: number;
+  /** Why the module is muted, so the dashboard can say it out loud. */
+  reason: string;
 }
+
 
 /** Files the installer downloads when --install is used. */
 const SUITE_FILES = MODULES.map((m) => m.file).concat(SUPPORT_FILES, ["install.js"]);
@@ -149,6 +177,13 @@ export async function main(ns: NS): Promise<void> {
   const optOut = new Set(
     MODULES.filter((m) => m.optOut && core.hasFlag(args, `--no-${m.subsystem}`)).map((m) => m.subsystem),
   );
+
+  /* Opt-in subsystems (a reset is destructive, so ascend.ts is off until the
+     player asks for it). */
+  const optIn = new Set(
+    MODULES.filter((m) => m.optIn && core.hasFlag(args, `--${m.subsystem}`)).map((m) => m.subsystem),
+  );
+
 
   const host = ns.getHostname();
   if (ns.getServerMaxRam(host) < AUTOBOT_RAM) {
@@ -187,9 +222,11 @@ export async function main(ns: NS): Promise<void> {
       if (loop === 0) logger.log(ns, "casino: the house has kicked us out, casino.ts stays off");
       stopBannedCasino(ns);
     }
-    const plan = makePlan(ns, core, only, skip, muted, optOut, banned);
-    startPlan(ns, plan, dryRun, tracked);
-    dashboard(ns, core, plan);
+    const { placements, allowed } = makePlan(ns, core, only, skip, muted, optOut, optIn, banned);
+    publishFocus(ns, allowed, placements, interval);
+    startPlan(ns, placements, dryRun, tracked);
+    dashboard(ns, core, placements);
+
 
     if (loop + 1 < loops) await ns.sleep(interval);
   }
@@ -254,10 +291,10 @@ function mutedModules(ns: NS, tracked: Map<string, Track>, loop: number): Set<st
       const wave = Math.floor((t.exits - QUICK_EXIT_LIMIT) / COOLDOWN_LOOPS) + 1;
       const cooldown = Math.min(COOLDOWN_LOOPS * wave, MAX_COOLDOWN_LOOPS);
       t.mutedUntil = loop + cooldown;
-      logger.log(ns,
-        `${file} exited ${t.exits}x in a row on ${t.host}; ` +
-        `skipping it for ${cooldown} loops (cooldown wave ${wave})`);
+      t.reason = `exited ${t.exits}x in a row on ${t.host}, cooling down for ${cooldown} loops (wave ${wave})`;
+      logger.log(ns, `${file} ${t.reason}`);
     }
+
 
     if (t.mutedUntil > loop) muted.add(file);
   }
@@ -309,8 +346,9 @@ function makePlan(
   skip: string[],
   muted: Set<string>,
   optOut: Set<string>,
+  optIn: Set<string>,
   banned: boolean,
-): Placement[] {
+): { placements: Placement[]; allowed: Set<focus.Activity> } {
   // scriptHosts() (not rootedServers()) so hacknet nodes are available as script
   // hosts: they have RAM, and RAM used by scripts on them raises hash gain.
   const servers = (core.scriptHosts(ns) as string[])
@@ -325,6 +363,7 @@ function makePlan(
    */
   const wouldRun = (module: Module) =>
     !optOut.has(module.subsystem) &&
+    (!module.optIn || optIn.has(module.subsystem)) &&
     !skip.includes(module.subsystem) &&
     (only.length === 0 || only.includes(module.subsystem)) &&
     !muted.has(module.file) &&
@@ -333,14 +372,16 @@ function makePlan(
     ns.ls(ns.getHostname()).includes(module.file) &&
     servers.some((server: any) => server.free >= module.ram);
 
-  const focusBlocked = new Set<string>();
-  for (const driver of MODULES) {
-    const conflicts = UI_FOCUS_CONFLICTS[driver.subsystem];
-    if (!conflicts || !wouldRun(driver)) continue;
-    for (const blocked of conflicts) focusBlocked.add(blocked);
+  const focusCandidates: focus.Activity[] = [];
+  for (const module of MODULES) {
+    if (wouldRun(module)) focusCandidates.push(module.subsystem as focus.Activity);
   }
+  // Priority order is MODULES order, so the subsystem that claims the player's
+  // attention first is the one that keeps it.
+  const allowed = focus.allowedActivities(focusCandidates);
 
   const placements: Placement[] = [];
+
 
   for (const module of MODULES) {
     if (only.length > 0 && !only.includes(module.subsystem)) continue;
@@ -361,8 +402,18 @@ function makePlan(
       continue;
     }
 
-    if (focusBlocked.has(module.subsystem)) {
-      placements.push({ module, host: null, reason: "focus conflict: the casino drives the UI" });
+    if (module.optIn && !optIn.has(module.subsystem)) {
+      placements.push({ module, host: null, reason: `off by default, enable with --${module.subsystem}` });
+      continue;
+    }
+
+
+    if (!allowed.has(module.subsystem as focus.Activity)) {
+      placements.push({
+        module,
+        host: null,
+        reason: focus.focusReason(module.subsystem as focus.Activity, [...allowed]) || "focus conflict",
+      });
       continue;
     }
 
@@ -392,7 +443,7 @@ function makePlan(
     placements.push({ module, host: target.host, reason: "" });
   }
 
-  return placements;
+  return { placements, allowed };
 }
 
 /** Copy the files and start the scripts. Returns how many were started. */
@@ -404,7 +455,7 @@ function startPlan(ns: NS, plan: Placement[], dryRun: boolean, tracked: Map<stri
 
     if (ns.scriptRunning(p.module.file, p.host)) {
       // Keep the entry alive so mutedModules() can notice a later exit.
-      if (!tracked.has(p.module.file)) tracked.set(p.module.file, { host: p.host, exits: 0, mutedUntil: 0 });
+      if (!tracked.has(p.module.file)) tracked.set(p.module.file, { host: p.host, exits: 0, mutedUntil: 0, reason: "" });
       continue;
     }
 
@@ -428,6 +479,7 @@ function startPlan(ns: NS, plan: Placement[], dryRun: boolean, tracked: Map<stri
         host: p.host,
         exits: prev ? prev.exits : 0,
         mutedUntil: prev ? prev.mutedUntil : 0,
+        reason: prev ? prev.reason : "",
       });
       started += 1;
     }
@@ -459,8 +511,44 @@ function reachable(ns: NS): string[] {
 
 
 /* -------------------------------------------------------------------------- */
+/*  Focus locks                                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Publish the focus decision to every module.
+ *
+ * autobot.ts is the only script that decides who gets the player's time. It
+ * writes state_focus.json on home, and startPlan() scp's state.ts with every
+ * module, so a module running on n0006 can read the same decision home made
+ * with core.focusAllowed().
+ */
+function publishFocus(
+  ns: NS,
+  allowed: Set<focus.Activity>,
+  placements: Placement[],
+  interval: number,
+): void {
+  const muted = placements
+    .filter((p) => !p.host && focus.focusNeeds(p.module.subsystem as focus.Activity))
+    .map((p) => ({ activity: p.module.subsystem, reason: p.reason }));
+
+  state.writeState(
+    ns,
+    "focus",
+    {
+      allowed: [...allowed],
+      muted,
+      at: Date.now(),
+      pid: Number(ns.pid ?? 0),
+    },
+    Math.max(interval * 3, 30000),
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Dashboard                                                                 */
 /* -------------------------------------------------------------------------- */
+
 
 function dashboard(ns: NS, core: any, plan: Placement[]): void {
   const running = plan.filter((p) => p.host && ns.scriptRunning(p.module.file, p.host));
@@ -469,6 +557,24 @@ function dashboard(ns: NS, core: any, plan: Placement[]): void {
   logger.log(ns, "");
   logger.log(ns, `money ${core.fmt(core.money(ns))} | hacking ${ns.getHackingLevel()} | bn ${core.bitnode(ns)}`);
   logger.log(ns, `running ${running.length} modules | blocked ${blocked.length}`);
+
+  /* Shared money budget: every subsystem that spends draws from the same pool,
+     so the dashboard shows what each one is actually allowed to touch. */
+  const money = core.money(ns);
+  logger.log(ns,
+    `money plan: reserve ${core.fmt(spending.reserve(money))} | ` +
+    `augs ${core.fmt(spending.allowance(money, "augs"))} | ` +
+    `hacknet ${core.fmt(spending.allowance(money, "hacknet"))} | ` +
+    `gang ${core.fmt(spending.allowance(money, "gang"))} | ` +
+    `corporation ${core.fmt(spending.allowance(money, "corporation"))}`,
+  );
+
+  /* Progression: which bitnode hands out the source file we are still missing. */
+  const owned = core.ownedSourceFiles(ns);
+  const next = bitnodes.nextBitnode(owned, "any", core.bitnode(ns));
+  if (next) logger.log(ns, `next bitnode: ${bitnodes.bitnodeSummary(next)}`);
+  else logger.log(ns, "all 25 bitnode source files owned - the suite has nothing left to unlock");
+
 
   for (const p of running) {
     logger.log(ns, `  ${pad(p.module.file, 18)} -> ${pad(p.host ?? "", 12)} ${p.module.ram} GB  ${p.module.note}`);

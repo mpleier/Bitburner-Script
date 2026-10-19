@@ -34,6 +34,11 @@
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
 import * as logger from "./logger.ts";
+// spending-policy.ts makes no API calls, so importing it costs only the 1.6 GB
+// base script cost. It gives the gang a fixed slice of the bankroll instead of
+// letting equipment shopping eat money hacknet and the aug shop still need.
+import * as spending from "./spending-policy.ts";
+
 
 const RAM_NEEDED = 46;
 
@@ -232,6 +237,10 @@ function buyEquipment(ns: NS, gang: any, dryRun: boolean): { count: number; spen
   const cash = ns.getPlayer().money;
   const names = ns.gang.getEquipmentNames();
 
+  /* The gang gets its own slice of the bankroll (spending-policy.ts) so that
+     equipment shopping never outruns hacknet, the aug shop or the corp. */
+  const budget = spending.allowance(cash, "gang");
+
   const cache: Record<string, { cost: number; stats: any }> = {};
   for (const name of names) {
     cache[name] = { cost: ns.gang.getEquipmentCost(name), stats: ns.gang.getEquipmentStats(name) };
@@ -252,6 +261,7 @@ function buyEquipment(ns: NS, gang: any, dryRun: boolean): { count: number; spen
       if (owned.has(name)) continue;
       const cost = cache[name].cost;
       if (cost <= 0 || cost > cash / 5) continue;
+      if (spent + cost > budget) continue;
 
       const st = cache[name].stats;
       const value =

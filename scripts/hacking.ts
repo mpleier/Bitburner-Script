@@ -41,7 +41,7 @@
 import * as core from "./core.ts";
 import * as logger from "./logger.ts";
 
-const RAM_NEEDED = 35;
+const RAM_NEEDED = 36;
 
 export async function main(ns: NS): Promise<void> {
   ns.clearLog();

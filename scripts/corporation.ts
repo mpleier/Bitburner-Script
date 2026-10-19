@@ -40,6 +40,12 @@ import type { CityName, CorpIndustryName } from "./types";
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
 import * as logger from "./logger.ts";
+// spending-policy.ts makes no API calls, so importing it costs only the 1.6 GB
+// base script cost. Seeding a corporation is the single largest purchase the
+// suite ever makes, so it is checked against the shared budget rather than
+// simply "can we pay it".
+import * as spending from "./spending-policy.ts";
+
 
 const RAM_NEEDED = 462;
 
@@ -107,11 +113,17 @@ export async function main(ns: NS): Promise<void> {
       // createCorporation() still needs $150b. Check it ourselves, otherwise the
       // module exits every interval with a message that looks like a bug.
       const cash = core.money(ns);
-      if (cash < SELF_FUND_COST) {
+      /* Seeding the corp is a $150b hit. The shared budget in spending-policy.ts
+         caps how much of the bankroll any one subsystem may touch, so we only
+         self-fund when the corp slice still covers the cost - i.e. when starting
+         a corporation does not leave the gang, hacknet and the aug shop broke. */
+      const seedBudget = spending.allowance(cash, "corporation");
+      if (cash < SELF_FUND_COST || seedBudget < SELF_FUND_COST) {
         logger.tlogOnce(ns,
           `corporation.ts: creating a corporation costs ${core.fmt(SELF_FUND_COST)}, ` +
-          `you have ${core.fmt(cash)}. Seed money (createCorporation(name, false)) is ` +
-          "only allowed in BitNode 3. Keep earning, then re-run this module.",
+          `you have ${core.fmt(cash)} but the corp budget is only ${core.fmt(seedBudget)}. ` +
+          "Seed money (createCorporation(name, false)) is only allowed in BitNode 3. " +
+          "Keep earning, then re-run this module.",
         );
         return;
       }

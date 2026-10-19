@@ -28,7 +28,7 @@
 import * as core from "./core.ts";
 import * as logger from "./logger.ts";
 
-const RAM_NEEDED = 45;
+const RAM_NEEDED = 46;
 
 /* Stock market access costs, straight from src/StockMarket.ts:
    getStockMarketWseCost / getStockMarketTixApiCost /

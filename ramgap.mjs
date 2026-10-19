@@ -73,7 +73,7 @@ function analyse(file) {
       const p = nsPath(node);
       if (!p) return;
       const head = p.split(".")[0];
-      if (head === "args" || head === "enums") return; // ns.args / ns.enums are free
+      if (head === "args" || head === "enums" || head === "pid") return; // ns.args / ns.enums / ns.pid are free
       if (NAMESPACES.has(p)) return; // a bare namespace reference costs nothing
       api.add(p);
     },

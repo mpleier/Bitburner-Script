@@ -32,6 +32,8 @@
  *   --print       alias for --verbose
  */
 
+import * as state from "./state.ts";
+
 // Bitburner injects its API typings as a global declaration file, so `NS`
 // needs no import (globals.d.ts mirrors that for local `tsc` checks).
 
@@ -140,6 +142,7 @@ export function hasRoot(ns: NS, host: string): boolean {
 
 /**
  * Every reachable server we have root on that the hacking API can talk about.
+
  * Hacknet nodes are deliberately excluded: they are rooted, but rooting them is
  * meaningless and every stat call on them throws.
  */
@@ -298,6 +301,22 @@ export function hasSF(ns: NS, n: number, level = 1): boolean {
   return (info.ownedSF.get(n) ?? 0) >= level;
 }
 
+/**
+ * Bitnode numbers whose Source-File we already own.
+ *
+ * Bitnode n hands out Source-File n, so this list is exactly the set of bitnodes
+ * the player has already destroyed - the input bitnode-policy.ts needs.
+ */
+export function ownedSourceFiles(ns: NS): number[] {
+  const info = tryCall(() => ns.getResetInfo(), null as any);
+  if (!info || !info.ownedSF) return [];
+  const owned: number[] = [];
+  for (const [n, level] of info.ownedSF as Map<number, number>) {
+    if (level > 0) owned.push(n);
+  }
+  return owned;
+}
+
 /** Bitnode number, 1-based. */
 export function bitnode(ns: NS): number {
   const info = tryCall(() => ns.getResetInfo(), null as any);
@@ -431,3 +450,147 @@ export function workBladeburnerConflict(ns: NS): boolean {
   if (hasBladesSimulacrum(ns)) return false;
   return bladeburnerBusy(ns) || tryCall(() => ns.singularity.isBusy(), false);
 }
+
+/**
+ * Default configuration for the whole suite. Every module reads it through
+ * loadConfig(), so a value set once in autobot_config.json or with a CLI flag
+ * reaches every script.
+ */
+export const DEFAULT_CONFIG: Record<string, number | boolean | string> = {
+  // Scheduler
+  interval: 10000,
+  graceMs: 30000,
+  maxAttempts: 3,
+  attemptWindowMs: 900000,
+  // Focus
+  focusEnabled: true,
+  // Spending
+  reserveFraction: 0.25,
+  // Progression
+  ascendEnabled: false,
+  ascendBatch: 5,
+  // Subsystems
+  gang: true,
+  sleeves: true,
+  bladeburner: true,
+  corporation: true,
+  stock: true,
+  stanek: true,
+  go: true,
+  infiltration: false,
+  darknet: true,
+  casino: false,
+  contracts: false,
+  share: true,
+  crime: true,
+  jobs: true,
+  factions: true,
+  hacknet: true,
+  hacking: true,
+};
+
+/**
+ * Layered configuration: defaults < autobot_config.json < CLI arguments.
+ *
+ * CLI wins because it is the most immediate signal, and a flag that is not
+ * recognised is still returned in `extra` so the caller can use it.
+ */
+export function loadConfig(ns: NS, args: string[]): Record<string, number | boolean | string> {
+  const config: Record<string, number | boolean | string> = { ...DEFAULT_CONFIG };
+
+  try {
+    const raw = ns.read("autobot_config.json");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        for (const [key, value] of Object.entries(parsed)) {
+          if (typeof value === "number" || typeof value === "boolean" || typeof value === "string") {
+            config[key] = value;
+          }
+        }
+      }
+    }
+  } catch {
+    // A malformed config file is ignored rather than crashing the scheduler.
+  }
+
+  const extra: Record<string, string> = {};
+
+  for (const arg of args) {
+    if (!arg.startsWith("--")) continue;
+    const body = arg.slice(2);
+    if (body === "") continue;
+
+    const eq = body.indexOf("=");
+    const key = eq === -1 ? body : body.slice(0, eq);
+    const rawValue = eq === -1 ? "true" : body.slice(eq + 1);
+
+    if (key in DEFAULT_CONFIG) {
+      const numeric = Number(rawValue);
+      if (!Number.isNaN(numeric)) {
+        config[key] = numeric;
+      } else if (rawValue === "true" || rawValue === "false") {
+        config[key] = rawValue === "true";
+      } else {
+        config[key] = rawValue;
+      }
+    } else {
+      extra[key] = rawValue;
+    }
+  }
+
+  config.__extra = JSON.stringify(extra);
+  return config;
+}
+
+/** Read one config value with a fallback. */
+export function configValue(
+  config: Record<string, number | boolean | string>,
+  key: string,
+  fallback: number | boolean | string,
+): number | boolean | string {
+  const value = config[key];
+  return value === undefined ? fallback : value;
+}
+
+/** True when a boolean config flag is on. */
+export function configOn(
+  config: Record<string, number | boolean | string>,
+  key: string,
+  fallback = true,
+): boolean {
+  const value = config[key];
+  if (value === undefined) return fallback;
+  return value === true || value === 1 || value === "true";
+}
+
+/**
+ * Ask the scheduler whether this activity currently has the player's focus.
+ *
+ * autobot.ts writes state_focus.json on home and scp's it to every server it
+ * places a module on, so a module on n0006 can read the same decision home
+ * made. When the file is missing or stale the module is allowed to run, which
+ * keeps a scheduler hiccup from switching the whole suite off.
+ */
+export function focusAllowed(ns: NS, activity: string): boolean {
+  const focus = state.readObject(ns, "focus");
+  if (!focus) return true;
+
+  const allowed = focus.allowed;
+  if (!Array.isArray(allowed)) return true;
+  if (allowed.map((value) => String(value)).includes(activity)) return true;
+
+  const muted = Array.isArray(focus.muted) ? focus.muted : [];
+  const entry = muted.find((item) => typeof item === "object" && String((item as Record<string, unknown>).activity) === activity);
+  if (entry) focusMutedReason = String((entry as Record<string, unknown>).reason ?? "");
+
+  return false;
+}
+
+/** The reason the last focusAllowed() call returned false, for module logging. */
+let focusMutedReason = "";
+
+export function focusMutedReasonOf(): string {
+  return focusMutedReason;
+}
+

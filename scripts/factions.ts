@@ -28,6 +28,11 @@
  *   run factions.ts --install-augs --interval 5000
  */
 
+// spending-policy.ts makes no API calls, so importing it costs only the 1.6 GB
+// base script cost. It is what stops the aug shop from draining the money the
+// gang, the corporation and hacknet still need.
+import * as spending from "./spending-policy.ts";
+
 // Bitburner injects its API typings as a global declaration file, so `NS`
 // needs no import (globals.d.ts mirrors that for local `tsc` checks).
 
@@ -174,6 +179,12 @@ function buyAugmentations(ns: NS, joined: Set<Faction>, dryRun: boolean): void {
   const cash = ns.getPlayer().money;
   const owned = new Set(ns.singularity.getOwnedAugmentations(true));
 
+  /* Augmentations share one slice of the bankroll (spending-policy.ts). Buying
+     them one at a time without a cap would empty the account before the gang or
+     the corporation gets a turn. */
+  const budget = spending.allowance(cash, "augs");
+  let spent = 0;
+
   for (const faction of joined) {
     const rep = ns.singularity.getFactionRep(faction);
     if (rep <= 0) continue;
@@ -189,14 +200,17 @@ function buyAugmentations(ns: NS, joined: Set<Faction>, dryRun: boolean): void {
 
       const price = ns.singularity.getAugmentationPrice(aug);
       if (price <= 0 || price > cash / 2) continue;
+      if (spent + price > budget) continue;
 
       if (dryRun) {
         logger.log(ns, `[dry-run] would buy ${aug} from ${faction} for ${fmt(price)}`);
+        spent += price;
         continue;
       }
       if (ns.singularity.purchaseAugmentation(faction, aug)) {
         logger.log(ns, `bought ${aug} for ${fmt(price)}`);
         owned.add(aug);
+        spent += price;
       }
     }
   }

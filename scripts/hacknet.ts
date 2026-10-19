@@ -20,9 +20,15 @@
 // would not be paid for and the game would abort the script with a RAM error.
 import * as core from "./core.ts";
 import * as logger from "./logger.ts";
+// spending-policy.ts makes no API calls, so importing it costs only the 1.6 GB
+// base script cost, and it keeps every subsystem's slice of the bankroll in one
+// place instead of each module inventing its own "spend a fifth of the money"
+// rule.
+import * as spending from "./spending-policy.ts";
+
 
 /** GB of RAM Bitburner allocates for this script. */
-const RAM_NEEDED = 21;
+const RAM_NEEDED = 24;
 
 export async function main(ns: NS): Promise<void> {
   ns.clearLog();
@@ -42,13 +48,22 @@ export async function main(ns: NS): Promise<void> {
     let nodes = ns.hacknet.numNodes();
     const cap = Math.min(ns.hacknet.maxNumNodes(), maxNodes);
 
-    // 1. Buy nodes while the next one is cheap relative to our bankroll.
+    /* Shared money budget: hacknet gets its own slice of the bankroll so buying
+       200 nodes does not starve the gang, the corporation or the aug shop.
+       `spent` is tracked locally because ns.getPlayer().money only moves when
+       the game actually charges us (it never moves in --dry-run). */
+    const budget = spending.allowance(cash, "hacknet");
+    let spent = 0;
+    const affordable = (cost: number) => cost > 0 && spent + cost <= budget;
+
+    // 1. Buy nodes while the next one is affordable and still a small slice of
+    //    the bankroll (the 3x rule keeps the ROI sane).
     while (nodes < cap) {
       const cost = ns.hacknet.getPurchaseNodeCost();
-      if (cost <= 0 || cash > cost * 3) {
-        if (!dryRun) ns.hacknet.purchaseNode();
-        nodes += 1;
-      } else break;
+      if (!affordable(cost) || cash - spent <= cost * 3) break;
+      if (!dryRun) ns.hacknet.purchaseNode();
+      spent += cost;
+      nodes += 1;
     }
 
     // 2. Upgrade every node. Only spend money when the upgrade is a
@@ -58,23 +73,27 @@ export async function main(ns: NS): Promise<void> {
       if (!stats) continue;
 
       const levelCost = ns.hacknet.getLevelUpgradeCost(i, 1);
-      if (levelCost > 0 && levelCost < cash / 20 && stats.level < 1000) {
+      if (affordable(levelCost) && levelCost < cash / 20 && stats.level < 1000) {
         if (!dryRun) ns.hacknet.upgradeLevel(i, 1);
+        spent += levelCost;
       }
 
       const ramCost = ns.hacknet.getRamUpgradeCost(i, 1);
-      if (ramCost > 0 && ramCost < cash / 25 && stats.ram < 64) {
+      if (affordable(ramCost) && ramCost < cash / 25 && stats.ram < 64) {
         if (!dryRun) ns.hacknet.upgradeRam(i, 1);
+        spent += ramCost;
       }
 
       const coreCost = ns.hacknet.getCoreUpgradeCost(i, 1);
-      if (coreCost > 0 && coreCost < cash / 30 && stats.cores < 16) {
+      if (affordable(coreCost) && coreCost < cash / 30 && stats.cores < 16) {
         if (!dryRun) ns.hacknet.upgradeCore(i, 1);
+        spent += coreCost;
       }
 
       const cacheCost = ns.hacknet.getCacheUpgradeCost(i, 1);
-      if (cacheCost > 0 && cacheCost < cash / 30) {
+      if (affordable(cacheCost) && cacheCost < cash / 30) {
         if (!dryRun) ns.hacknet.upgradeCache(i, 1);
+        spent += cacheCost;
       }
     }
 
