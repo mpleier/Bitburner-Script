@@ -47,6 +47,7 @@ const FILES = [
   "jobs.ts", "crime.ts", "gang.ts", "bladeburner.ts",
   "corporation.ts", "stock.ts", "stanek.ts", "sleeves.ts",
   "go.ts", "infiltration.ts", "darknet.ts", "share.ts",
+  "casino.ts", "casino-policy.ts",
 ];
 
 /** autobot.ts is allocated 14.15 GB by Bitburner (its own ns calls + core.ts). */

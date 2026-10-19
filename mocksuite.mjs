@@ -159,6 +159,8 @@ const MODULES = [
   "sleeves.ts",
   "share.ts",
   "contractRunner.ts",
+  "casino-policy.ts",
+  "casino.ts",
   "autobot.ts",
   "install.js",
 ];
@@ -540,6 +542,17 @@ function makeNs(args, host, opts) {
      getDarkwebProgramCost() returns -1 (rather than throwing) before it is bought. */
   let hasTor = opts.tor;
 
+/** MoneySource shape from defs.d.ts, used by ns.getMoneySources(). */
+const EMPTY_MONEY_SOURCE = {
+  bladeburner: 0, casino: 0, class: 0, codingcontract: 0, corporation: 0, crime: 0,
+  gang: 0, gang_expenses: 0, hacking: 0, hacknet: 0, hacknet_expenses: 0, hospitalization: 0,
+  infiltration: 0, sleeves: 0, stock: 0, total: 0, work: 0, servers: 0, other: 0, augmentations: 0,
+};
+
+/** Total casino winnings the fake player has banked, so casino.ts can see
+ *  when the house has already banned it. */
+let casinoWinnings = opts.casinoWinnings ?? 0;
+
 
   const player = {
     money: opts.money,
@@ -914,6 +927,16 @@ function makeNs(args, host, opts) {
     share: async () => { tick(); currentWork = "share"; return 1000; },
     getPlayer: () => player,
     getResetInfo: () => ({ currentNode: opts.bitnode, ownedSF: opts.sourceFiles }),
+    getMoneySources: () => ({
+      sinceInstall: {
+        bladeburner: 0, casino: casinoWinnings, class: 0, codingcontract: 0, corporation: 0,
+        crime: 0, gang: 0, gang_expenses: 0, hacking: 0, hacknet: 0, hacknet_expenses: 0,
+        hospitalization: 0, infiltration: 0, sleeves: 0, stock: 0, total: player.money,
+        work: 0, servers: 0, other: 0, augmentations: 0,
+      },
+      sinceDeath: { ...EMPTY_MONEY_SOURCE },
+      sinceInstallAugReset: { ...EMPTY_MONEY_SOURCE },
+    }),
     getFavorToDonate: () => 10000,
     getServerBackdoor: (h) => Boolean(SERVERS[h]?.backdoorInstalled),
     wget: async (url, target, host) => true,
@@ -1053,6 +1076,18 @@ function makeNs(args, host, opts) {
         if (player.money < 1_000_000) return false;
         player.money -= 1_000_000;
         PROGRAMS.add(String(name));
+        return true;
+      },
+      travelToCity: (ctxCity) => {
+        assertEnum("singularity.travelToCity", "cityName", "CityName", ctxCity);
+        if (player.money < 200_000) { print("Not enough money to travel."); return false; }
+        player.money -= 200_000;
+        player.city = ctxCity;
+        print(`Traveled to ${ctxCity}`);
+        return true;
+      },
+      goToLocation: (locationName) => {
+        print(`goToLocation(${locationName})`);
         return true;
       },
       getUpgradeHomeRamCost: () => 1_000_000,
@@ -1664,6 +1699,7 @@ function parseArgs(argv) {
     else if (a === "--blades-simulacrum") opts.bladesSimulacrum = true;
     else if (a === "--no-tor") opts.tor = false;
     else if (a === "--no-programs") opts.noPrograms = true;
+    else if (a === "--casino-winnings") opts.casinoWinnings = Number(argv[++i] ?? 0);
     else if (a === "--no-sf") opts.sourceFiles = new Map();
     else if (a === "--sf") { const n = Number(argv[++i]); opts.sourceFiles.set(n, Number(argv[++i] ?? 1)); }
     else if (a === "--ns-args") opts.nsArgs = (argv[++i] ?? "").split(/\s+/).filter(Boolean);
@@ -1672,11 +1708,90 @@ function parseArgs(argv) {
   return opts;
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Casino policy unit checks (pure functions, no ns calls)                   */
+/* -------------------------------------------------------------------------- */
+
+async function checkCasinoPolicy() {
+  const policy = await import(pathToFileURL(path.join(SCRIPTS, "casino-policy.ts")).href);
+  const failures = [];
+  const expect = (label, actual, expected) => {
+    if (actual !== expected) failures.push(`${label}: expected ${expected}, got ${actual}`);
+  };
+
+  // Betting
+  expect("wager(1e9)", policy.casinoWager(1e9), policy.CASINO_MAX_BET);
+  expect("wager(1000)", policy.casinoWager(1000), 900);
+  expect("wager(1)", policy.casinoWager(1), 1);
+  expect("wager(0)", policy.casinoWager(0), 0);
+  expect("wager(NaN)", policy.casinoWager(NaN), 0);
+  expect("roundDelta win", policy.casinoRoundDelta("win", 100, 1000, 1100), 100);
+  expect("roundDelta blackjack", policy.casinoRoundDelta("win", 100, NaN, NaN, true), 150);
+  expect("roundDelta lose", policy.casinoRoundDelta("lose", 100, NaN, NaN), -100);
+
+  // Dealer cards
+  expect("dealer A of spades", policy.parseDealerRank("A♠"), 11);
+  expect("dealer king", policy.parseDealerRank("K♥"), 10);
+  expect("dealer 7", policy.parseDealerRank(" 7 "), 7);
+  let threw = false;
+  try { policy.parseDealerRank("Joker"); } catch { threw = true; }
+  expect("dealer junk throws", threw, true);
+
+  // Basic strategy: hit = true
+  expect("hard 12 vs 2 hits", policy.blackjackShouldHit("Count: 12", 2), true);
+  expect("hard 12 vs 4 stands", policy.blackjackShouldHit("Count: 12", 4), false);
+  expect("hard 13 vs 7 hits", policy.blackjackShouldHit("Count: 13", 7), true);
+  expect("hard 16 vs 6 stands", policy.blackjackShouldHit("Count: 16", 6), false);
+  expect("hard 17 vs A stands", policy.blackjackShouldHit("Count: 17", 11), false);
+  expect("soft 18 vs 10 hits", policy.blackjackShouldHit("Count: 18, 8", 10), true);
+  expect("soft 18 vs 5 stands", policy.blackjackShouldHit("Count: 18, 8", 5), false);
+  expect("soft 19 vs 6 stands", policy.blackjackShouldHit("Count: 19, 9", 6), false);
+  expect("simple 17 stands", policy.blackjackShouldHit("Count: 17", 2, "simple"), false);
+  expect("simple 16 hits", policy.blackjackShouldHit("Count: 16", 2, "simple"), true);
+  threw = false;
+  try { policy.blackjackShouldHit("No cards yet", 5); } catch { threw = true; }
+  expect("unreadable count throws", threw, true);
+
+  // Seed-money crime choice: the 40k/4s/50% crime beats the 15k/2s/5% one.
+  const best = policy.chooseSeedCrime(
+    [{ name: "Shoplift", money: 15000, time: 2000, chance: 0.05 },
+     { name: "Mug", money: 40000, time: 4000, chance: 0.5 }],
+    100000,
+  );
+  expect("seed crime choice", best?.name, "Mug");
+  expect("no seed needed", policy.chooseSeedCrime([{ name: "Mug", money: 1, time: 1, chance: 1 }], 0), null);
+
+  // Save-scumming decisions
+  const state = { hands: 0, net: 0, peak: 0 };
+  expect("win saves", policy.decideHand(state, "win", 100_000, 1_000_000, 1_100_000, false, 10), "save");
+  expect("small loss continues", policy.decideHand(state, "lose", 100_000, 1_100_000, 1_000_000, false, 10), "continue");
+  expect("losing streak reloads", policy.decideHand(state, "lose", 100_000, 1_000_000, 900_000, false, 1), "reload");
+  expect("broke reloads", policy.decideHand({ hands: 0, net: 0, peak: 0 }, "lose", 100_000, 400_000, 300_000, false, 10), "reload");
+
+  expect("negative sleep rejected", policy.casinoOptionsError({
+    saveSleepMs: -1, clickSleepMs: 5, findSleepMs: 0, maxRounds: 10, reloadAfterLosses: 10,
+  }) !== null, true);
+  expect("valid options accepted", policy.casinoOptionsError({
+    saveSleepMs: 10, clickSleepMs: 5, findSleepMs: 0, maxRounds: 10, reloadAfterLosses: 10,
+  }), null);
+
+  return failures;
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   ENUMS = parseEnums(path.join(process.cwd(), "defs.d.ts"));
   SERVERS.home.maxRam = opts.ram;
   if (opts.noPrograms) PROGRAMS.clear();
+
+  const policyFailures = await checkCasinoPolicy();
+  if (policyFailures.length) {
+    console.log(`casino-policy unit checks: ${policyFailures.length} failure(s)`);
+    for (const failure of policyFailures) console.log(`  ${failure}`);
+    process.exitCode = 1;
+  } else {
+    console.log("casino-policy unit checks: all passed");
+  }
 
   const targets = opts.modules.length > 0
     ? opts.modules.map((m) => (/\.[a-z]+$/i.test(m) ? m : `${m}.ts`))

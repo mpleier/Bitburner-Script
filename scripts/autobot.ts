@@ -24,6 +24,7 @@
  *   run autobot.ts --dry-run --loops 3       safe test run that terminates
  *   run autobot.ts --only hacking,hacknet    run a subset
  *   run autobot.ts --skip corporation        exclude a subset
+ *   run autobot.ts --no-casino             keep the blackjack bot off
  *   run autobot.ts --status                  print the dashboard and exit
  *   run autobot.ts --kill                    stop every module the bot started
  */
@@ -59,6 +60,8 @@ interface Module {
   args: string[];
   /** One-line description shown in the dashboard. */
   note: string;
+  /** Modules with optOut: true run by default and are disabled with --no-<subsystem>. */
+  optOut?: boolean;
 }
 
 /**
@@ -83,10 +86,22 @@ const MODULES: Module[] = [
   { file: "infiltration.ts",   ram: 27,  subsystem: "infiltration", priority: 14, threads: 1, args: [], note: "SP500 infiltration for materials" },
   { file: "darknet.ts",        ram: 26,  subsystem: "darknet",      priority: 15, threads: 1, args: [], note: "BN10 Darknet: harvest stasis links" },
   { file: "share.ts",          ram: 6,   subsystem: "share",        priority: 16, threads: 1, args: [], note: "fill leftover RAM with share() for faction work" },
+  { file: "casino.ts",         ram: 35,  subsystem: "casino",       priority: 17, threads: 1, args: [], optOut: true, note: "blackjack save-scumming through the browser UI (disable with --no-casino)" },
 ];
 
+/**
+ * A module that drives the browser UI needs the player's focus. Modules that
+ * take focus (faction work, a job, crimes, a Bladeburner action, `share()`)
+ * replace the casino page with the work page, so they must not run at the same
+ * time. `sleeves.ts`, `go.ts` and `infiltration.ts` are safe: they work through
+ * the API without touching the player's work slot.
+ */
+const UI_FOCUS_CONFLICTS: Record<string, string[]> = {
+  casino: ["crime", "jobs", "factions", "bladeburner", "share"],
+};
+
 /** Files every module needs next to it. */
-const SUPPORT_FILES = ["core.ts", "logger.ts", "types.ts", "contracts.ts"];
+const SUPPORT_FILES = ["core.ts", "logger.ts", "types.ts", "contracts.ts", "casino-policy.ts"];
 
 /**
  * A module that exits straight away (karma too high, not enough money for a
@@ -126,6 +141,11 @@ export async function main(ns: NS): Promise<void> {
   const ref = core.flag(args, "--ref") ?? DEFAULT_REF;
   const useCooldown = !core.hasFlag(args, "--no-cooldown");
 
+  /* Opt-out subsystems: on by default, off when --no-<subsystem> is passed. */
+  const optOut = new Set(
+    MODULES.filter((m) => m.optOut && core.hasFlag(args, `--no-${m.subsystem}`)).map((m) => m.subsystem),
+  );
+
   const host = ns.getHostname();
   if (ns.getServerMaxRam(host) < AUTOBOT_RAM) {
     logger.tlog(ns, `autobot.ts needs ~${AUTOBOT_RAM} GB; ${host} has ${ns.getServerMaxRam(host)} GB.`);
@@ -158,7 +178,7 @@ export async function main(ns: NS): Promise<void> {
 
   for (let loop = 0; loop < loops; ++loop) {
     const muted = useCooldown ? mutedModules(ns, tracked, loop) : new Set<string>();
-    const plan = makePlan(ns, core, only, skip, muted);
+    const plan = makePlan(ns, core, only, skip, muted, optOut);
     startPlan(ns, plan, dryRun, tracked);
     dashboard(ns, core, plan);
 
@@ -242,12 +262,41 @@ function mutedModules(ns: NS, tracked: Map<string, Track>, loop: number): Set<st
  * Servers are filled in priority order: the module with the lowest priority
  * number claims the rooted server with the most free RAM that can hold it.
  */
-function makePlan(ns: NS, core: any, only: string[], skip: string[], muted: Set<string>): Placement[] {
+function makePlan(
+  ns: NS,
+  core: any,
+  only: string[],
+  skip: string[],
+  muted: Set<string>,
+  optOut: Set<string>,
+): Placement[] {
   // scriptHosts() (not rootedServers()) so hacknet nodes are available as script
   // hosts: they have RAM, and RAM used by scripts on them raises hash gain.
   const servers = (core.scriptHosts(ns) as string[])
     .map((h: string) => ({ host: h, free: core.tryCall(() => ns.getServerMaxRam(h) - ns.getServerUsedRam(h), 0) }))
     .sort((a: any, b: any) => b.free - a.free);
+
+  /*
+   * A UI driver only owns the screen if it is actually going to run: not turned
+   * off, not excluded, unlocked in this bitnode, present on home and small enough
+   * to fit on some rooted server. Only then do the modules that would steal the
+   * player's focus have to stay idle.
+   */
+  const wouldRun = (module: Module) =>
+    !optOut.has(module.subsystem) &&
+    !skip.includes(module.subsystem) &&
+    (only.length === 0 || only.includes(module.subsystem)) &&
+    !muted.has(module.file) &&
+    core.subsystemAvailable(ns, module.subsystem) &&
+    ns.ls(ns.getHostname()).includes(module.file) &&
+    servers.some((server: any) => server.free >= module.ram);
+
+  const focusBlocked = new Set<string>();
+  for (const driver of MODULES) {
+    const conflicts = UI_FOCUS_CONFLICTS[driver.subsystem];
+    if (!conflicts || !wouldRun(driver)) continue;
+    for (const blocked of conflicts) focusBlocked.add(blocked);
+  }
 
   const placements: Placement[] = [];
 
@@ -255,6 +304,16 @@ function makePlan(ns: NS, core: any, only: string[], skip: string[], muted: Set<
     if (only.length > 0 && !only.includes(module.subsystem)) continue;
     if (skip.includes(module.subsystem)) {
       placements.push({ module, host: null, reason: "excluded by --skip" });
+      continue;
+    }
+
+    if (module.optOut && optOut.has(module.subsystem)) {
+      placements.push({ module, host: null, reason: `disabled by --no-${module.subsystem}` });
+      continue;
+    }
+
+    if (focusBlocked.has(module.subsystem)) {
+      placements.push({ module, host: null, reason: "focus conflict: the casino drives the UI" });
       continue;
     }
 

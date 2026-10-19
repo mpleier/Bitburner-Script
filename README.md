@@ -37,13 +37,15 @@ That single command downloads 20 files from GitHub, picks the best server, and s
 | `infiltration.ts` | 27 GB | — | Ranks SP500 locations by expected value, infiltrates the best |
 | `darknet.ts` | 26 GB | BN15 / SF15 | Harvests stasis links, probes neighbours, heartbleeds logs |
 | `share.ts` | 6 GB | — | Fills leftover RAM with `share()` for faction work |
+| `casino.ts` | 35 GB | — | Blackjack at the Iker Molina Casino through the browser UI; on by default, disable with `--no-casino` |
+| `casino-policy.ts` | 0 GB | — | The casino's decision tables (wager sizing, blackjack strategy, reload logic) - no API calls, so it is unit-testable offline |
 
 \* `core.ts` is **statically** imported, so its API calls are added to every module that
 imports it. `contracts.ts` is the only `ns.dynamicImport()` in the suite, and that is safe
 only because it makes no API calls at all. Every module needs `core.ts`, `types.ts` and
 `contracts.ts` on the same server — `autobot.ts` `scp`s them there automatically.
 
-Total RAM if every module ran at once: **~1,060 GB** (with Source-File 4 installed). Without
+Total RAM if every module ran at once: **~1,095 GB** (with Source-File 4 installed). Without
 SF4 the Singularity API costs 16× more, so the Singularity-heavy modules need far more RAM
 than the table shows. In practice the orchestrator only starts the subsystems that are
 actually unlocked, and it refuses to start anything that would over-commit a server.
@@ -148,6 +150,7 @@ run autobot.ts --kill     # same, but autobot.ts itself needs 15 GB of RAM
 | `--interval 5000` | Re-plan every N ms (default 5000) |
 | `--only hacking,hacknet` | Run only these modules |
 | `--skip corporation,go` | Exclude these modules |
+| `--no-casino` | Turn `casino.ts` off. It runs by default, and while it runs the orchestrator mutes `crime.ts`, `jobs.ts`, `factions.ts`, `bladeburner.ts` and `share.ts` |
 | `--status` | Print the dashboard once and exit |
 | `--no-cooldown` | Restart a module on every interval even if it keeps exiting straight away |
 | `--kill` | Kill every module the suite started, then exit |
@@ -237,6 +240,7 @@ Every module can be run standalone. All of them accept `--dry-run`, `--loops N`,
 | `sleeves.ts` | `--sync-target 100` |
 | `infiltration.ts` | `--top 5`, `--rep-only` |
 | `darknet.ts` | `--max-attempts 5` |
+| `casino.ts` | `--max-rounds 1000`, `--simple-strategy`, `--reload-after-losses 10`, `--seed 300000`, `--earn-seed`, `--save-sleep 10`, `--click-sleep 5`, `--find-sleep 0` |
 
 Example — solve contracts only, on a specific server:
 
@@ -689,6 +693,68 @@ node mocksuite.mjs _bladeburnertest --blades-simulacrum --verbose
 
 ---
 
+## The casino: the only module that touches the browser
+
+Blackjack has no API. The Iker Molina Casino is a React page inside the Overview
+panel, so `casino.ts` is the one module in the suite that reaches into the DOM:
+
+```ts
+const doc = eval("document");   // Bitburner's sandbox does not expose `document`
+const table = doc.evaluate(xpath, doc, null, 9, null).singleNodeValue;
+```
+
+Clicking the DOM node is often not enough, because the component's state only
+changes through the handler React attached to it, so the script calls that handler
+directly and falls back to a plain `click()`:
+
+```ts
+const handler = reactHandler(button, "onClick");   // __reactProps$... / __reactFiber$...
+if (handler) handler(fakeEvent(button));
+else button.click();
+```
+
+**Why the logic lives in `casino-policy.ts`.** Bitburner computes a script's RAM
+from the API calls it can see in the AST. Keeping every decision (bet sizing, the
+hit/stand tables, dealer parsing, the reload rule, which crime to grind for seed
+money) in a file that makes **no API calls** costs 0 GB and makes it testable
+without the game:
+
+```bash
+node mocksuite.mjs casino-policy casino --verbose
+```
+
+**The save-scumming loop.** `casino.ts` saves after every win, so a win is
+permanent, and reloads the page *without* saving when net winnings fall below the
+peak by `--reload-after-losses` bets, which undoes the losses. The reload kills
+the script; the save file restarts it. The run ends when the house bans you, which
+the game records in `ns.getMoneySources().sinceInstall.casino` (10 billion).
+
+**Focus conflict.** The player can only do one focused thing at a time, and a
+faction job, a company job, a crime, a Bladeburner action or `share()` replaces the
+casino page with the work page. Because `casino.ts` is scheduled by default, the
+orchestrator reports those five subsystems as blocked:
+
+```text
+crime.ts        blocked  focus conflict: the casino drives the UI
+jobs.ts         blocked  focus conflict: the casino drives the UI
+factions.ts     blocked  focus conflict: the casino drives the UI
+bladeburner.ts  blocked  focus conflict: the casino drives the UI
+share.ts        blocked  focus conflict: the casino drives the UI
+```
+
+The mute is conditional: it only applies when `casino.ts` would actually run. Pass
+`--no-casino`, `--skip casino`, or run out of a server with 35 GB free and those
+five modules go back to work.
+
+`sleeves.ts`, `go.ts` and `infiltration.ts` are unaffected: sleeve work belongs to
+the sleeves, and Go/Infiltration are read through the API without opening a page.
+
+If the focus is taken anyway, `casino.ts` clicks the game's "do something else
+simultaneously" button before it gives up. Run it with `--dry-run` first: without a
+browser it prints the plan and exits instead of touching the UI.
+
+---
+
 ## Testing without the game
 
 The repo ships a fake `ns` API so the whole suite can be exercised offline:
@@ -752,6 +818,7 @@ scripts/
   hacking.ts hacknet.ts factions.ts jobs.ts crime.ts gang.ts
   bladeburner.ts corporation.ts stock.ts stanek.ts sleeves.ts
   go.ts infiltration.ts darknet.ts share.ts
+  casino.ts casino-policy.ts   blackjack driver + its pure decision tables
   _backdoortest.ts    installBackdoor access-gate test (runs against the mock)
   _hacknettest.ts     hacknet-node filtering test (runs against the mock)
 
